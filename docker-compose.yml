@@ -1,0 +1,28 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: ngs-mini-galaxy-backend
+    environment:
+      NGS_DB_PATH: /data/ngs_mini_galaxy.db
+      NGS_STORAGE_DIR: /data/storage
+      NGS_JWT_SECRET: change-me-for-real-deployments
+      NGS_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: ngs-mini-galaxy-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  backend-data:

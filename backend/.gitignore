@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+ngs_mini_galaxy.db
+storage/uploads/*
+storage/jobs/*
+storage/results/*
+!storage/uploads/.gitkeep
+!storage/jobs/.gitkeep
+!storage/results/.gitkeep
+
