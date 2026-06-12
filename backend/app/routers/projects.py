@@ -7,7 +7,7 @@ from app.models.upload_file import UploadFile as UploadFileModel
 from app.models.upload_session import UploadSession
 from app.models.user import User
 from app.routers.deps import get_current_user
-from app.schemas.import_job import ImportJobCreate, ImportJobResponse
+from app.schemas.import_job import ImportJobCreate, ImportJobResponse 
 from app.schemas.job import JobResponse
 from app.schemas.project import (
     ProjectCreate,
@@ -34,6 +34,8 @@ from app.services.projects import (
     serialize_project,
     serialize_project_detail,
     serialize_project_member,
+    delete_project,
+    delete_upload,
 )
 from app.services.uploads import append_chunk, complete_upload_session, create_upload_session, get_upload_session, serialize_upload_session
 
@@ -71,6 +73,22 @@ def get_project_endpoint(
 
     uploads = list_uploads_for_project(db, project.id)
     return ProjectDetailResponse(**serialize_project_detail(project, current_user, uploads))
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project_endpoint(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = get_project_for_user(db, current_user, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the project owner can delete it")
+        
+    delete_project(db, project)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{project_id}/members", response_model=list[ProjectMemberResponse])
@@ -137,6 +155,25 @@ def upload_project_files(
         raise HTTPException(status_code=404, detail="Project not found")
 
     return [store_upload(db, project, item) for item in files]
+
+
+@router.delete("/{project_id}/uploads/{upload_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project_upload_endpoint(
+    project_id: int,
+    upload_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = get_project_for_user(db, current_user, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+        
+    upload = db.query(UploadFileModel).filter(UploadFileModel.id == upload_id, UploadFileModel.project_id == project.id).first()
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found")
+        
+    delete_upload(db, upload)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{project_id}/import-accessions", response_model=list[UploadFileResponse])

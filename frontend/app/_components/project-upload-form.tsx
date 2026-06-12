@@ -374,7 +374,7 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
   }
 
   return (
-    <div className="card rounded-[2rem] p-6">
+    <div className="rounded-[1.5rem]">
       <h2 className="text-lg font-semibold">Dodawanie plików projektu</h2>
       <p className="mt-1 text-sm text-muted">
         Lokalny upload działa chunkami i można go wznowić po ponownym wskazaniu tych samych plików. Import SRA działa w tle po stronie backendu.
@@ -414,7 +414,7 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
           </div>
         </div>
       ) : null}
-      <div className="mt-4 flex gap-3">
+      <div className="mt-4 flex flex-wrap gap-3">
         <button
           type="button"
           className={`rounded-full px-4 py-2 text-sm ${mode === "local" ? "bg-accent text-white" : "pill"}`}
@@ -437,7 +437,7 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
             key={inputResetKey}
             type="file"
             multiple
-            className="mt-4 block w-full text-sm"
+            className="mt-4 block w-full max-w-full text-sm"
             onChange={(event) => {
               const nextFiles = Array.from(event.target.files ?? []);
               setFiles(nextFiles);
@@ -448,7 +448,7 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
             <div className="mt-3 space-y-2">
               <p className="text-sm text-muted">Wybrane pliki:</p>
               {selectedFileNames.map((fileName) => (
-                <div key={fileName} className="pill rounded-2xl px-4 py-2 text-sm">
+                <div key={fileName} className="pill min-w-0 break-words rounded-2xl px-4 py-2 text-sm">
                   {fileName}
                 </div>
               ))}

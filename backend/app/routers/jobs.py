@@ -19,6 +19,7 @@ from app.services.jobs import (
     serialize_job,
     serialize_job_step,
     start_job_runner,
+    delete_job,
 )
 from app.services.projects import get_project_for_user
 
@@ -71,6 +72,20 @@ def get_job_endpoint(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return JobResponse(**serialize_job(job))
+
+
+@router.delete("/jobs/{job_id}", status_code=204)
+def delete_job_endpoint(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    job = _get_job_for_user(db, current_user, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    delete_job(db, job)
+    return 
 
 
 @router.get("/jobs/{job_id}/steps", response_model=list[JobStepResponse])

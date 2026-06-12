@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f4f7f2;
-  --foreground: #142013;
-  --card: #fbfdf8;
-  --muted: #66785f;
-  --line: #d8e2d3;
-  --accent: #2f7a45;
-  --accent-strong: #173d23;
-  --danger: #b54135;
-  --font-sans-stack: "Avenir Next", "Segoe UI", sans-serif;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --accent: #10b981;
+  --accent-strong: #059669;
+  --danger: #ef4444;
+  --font-sans-stack: "Inter", "Avenir Next", "Segoe UI", sans-serif;
   --font-mono-stack: "SFMono-Regular", "Menlo", monospace;
 }
 
@@ -39,8 +39,9 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans-stack);
   background-image:
-    radial-gradient(circle at top left, rgba(47, 122, 69, 0.14), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(244, 247, 242, 0.96));
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.1), transparent 40%),
+    radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.05), transparent 40%);
+  min-height: 100vh;
 }
 
 a {
@@ -56,27 +57,27 @@ textarea {
 }
 
 ::selection {
-  background: rgba(47, 122, 69, 0.18);
+  background: rgba(16, 185, 129, 0.3);
 }
 
 .card {
   border: 1px solid var(--line);
-  background: rgba(251, 253, 248, 0.92);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 18px 48px rgba(20, 32, 19, 0.08);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.08);
 }
 
 .pill {
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(241, 245, 249, 0.8);
 }
 
 .status-queued {
-  color: #7a5b15;
+  color: #f59e0b;
 }
 
 .status-running {
-  color: #245d8c;
+  color: #3b82f6;
 }
 
 .status-completed {
@@ -85,4 +86,52 @@ textarea {
 
 .status-failed {
   color: var(--danger);
+}
+
+/* Modal dialog custom styles */
+dialog {
+  margin: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: hidden;
+}
+
+dialog::backdrop {
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+}
+
+/* Animations for dialog */
+dialog[open] {
+  animation: modal-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Custom Scrollbar for modern look */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }

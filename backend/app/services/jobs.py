@@ -606,6 +606,13 @@ def create_job(db: Session, project: Project, sample_name: str, selected_steps: 
     return db.query(Job).filter(Job.id == job.id).first()
 
 
+def delete_job(db: Session, job: Job) -> None:
+    if job.working_dir and Path(job.working_dir).exists():
+        shutil.rmtree(job.working_dir, ignore_errors=True)
+    db.delete(job)
+    db.commit()
+
+
 def normalize_pipeline_steps(
     db: Session,
     project: Project,

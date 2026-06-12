@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 import { AppShell } from "@/app/_components/app-shell";
 import { API_URL, apiRequest } from "@/lib/api";
@@ -17,7 +17,11 @@ export default function JobDetailPage() {
   const [files, setFiles] = useState<JobFile[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  async function openJobFile(file: JobFile, download = false) {
+  const previewModalRef = useRef<HTMLDialogElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewName, setPreviewName] = useState<string>("");
+
+  async function openJobFile(file: JobFile, action: "download" | "open" | "preview" = "open") {
     const token = getToken();
     if (!token) {
       setError("Brak tokenu uwierzytelniającego.");
@@ -26,7 +30,7 @@ export default function JobDetailPage() {
 
     const url = new URL(`${API_URL}/jobs/${jobId}/file`);
     url.searchParams.set("path", file.path);
-    if (download) {
+    if (action === "download") {
       url.searchParams.set("download", "true");
     }
 
@@ -43,15 +47,38 @@ export default function JobDetailPage() {
 
     const blob = await response.blob();
     const objectUrl = window.URL.createObjectURL(blob);
-    if (download) {
+    if (action === "download") {
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
       anchor.download = file.name;
       anchor.click();
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+    } else if (action === "preview") {
+      if (previewUrl) {
+        window.URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(objectUrl);
+      setPreviewName(file.name);
+      previewModalRef.current?.showModal();
     } else {
       window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
     }
-    window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+  }
+
+  function closePreview() {
+    previewModalRef.current?.close();
+    if (previewUrl) {
+      window.URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
+  }
+
+  function handleDialogClick(e: React.MouseEvent<HTMLDialogElement>) {
+    const dialog = e.currentTarget;
+    if (e.target === dialog) {
+      closePreview();
+    }
   }
 
   useEffect(() => {
@@ -191,23 +218,30 @@ export default function JobDetailPage() {
                   files.map((file) => (
                     <div
                       key={`${file.kind}-${file.path}`}
-                      className="pill flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm"
+                      className="pill flex flex-col gap-3 rounded-2xl px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <span>
+                      <span className="min-w-0 break-words">
                         {file.name} · {file.kind}
                       </span>
-                      <span className="flex gap-2">
+                      <span className="flex shrink-0 flex-wrap gap-2">
                         <button
                           type="button"
                           className="rounded-full bg-accent px-3 py-1 text-xs text-white"
-                          onClick={() => void openJobFile(file, false)}
+                          onClick={() => void openJobFile(file, "preview")}
                         >
-                          Otwórz
+                          Podgląd
                         </button>
                         <button
                           type="button"
                           className="pill rounded-full px-3 py-1 text-xs"
-                          onClick={() => void openJobFile(file, true)}
+                          onClick={() => void openJobFile(file, "open")}
+                        >
+                          Karta
+                        </button>
+                        <button
+                          type="button"
+                          className="pill rounded-full px-3 py-1 text-xs"
+                          onClick={() => void openJobFile(file, "download")}
                         >
                           Pobierz
                         </button>
@@ -222,6 +256,35 @@ export default function JobDetailPage() {
           </div>
         </section>
       </div>
+
+      {/* Preview Modal */}
+      <dialog
+        ref={previewModalRef}
+        onClick={handleDialogClick}
+        className="h-[95vh] max-h-[1200px] w-[95vw] max-w-6xl rounded-[2rem] border border-line/50 bg-card p-0 shadow-[0_0_50px_rgba(0,0,0,0.35)]"
+      >
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line/40 p-4">
+            <h2 className="min-w-0 truncate text-lg font-bold">{previewName}</h2>
+            <button
+              type="button"
+              onClick={closePreview}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-line/50"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+          <div className="relative min-h-0 w-full flex-1 bg-white">
+            {previewUrl ? (
+              <iframe
+                src={previewUrl}
+                className="absolute inset-0 h-full w-full border-none"
+                title="Preview"
+              />
+            ) : null}
+          </div>
+        </div>
+      </dialog>
     </AppShell>
   );
 }

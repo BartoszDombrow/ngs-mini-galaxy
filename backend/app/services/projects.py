@@ -1,5 +1,10 @@
+import shutil
+import os
+from pathlib import Path
+
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.core.config import UPLOADS_DIR
 from app.models.job import Job
 from app.models.project import Project
 from app.models.project_member import ProjectMember
@@ -132,3 +137,29 @@ def list_jobs_for_project(db: Session, project_id: int) -> list[Job]:
         .order_by(Job.created_at.desc())
         .all()
     )
+
+
+def delete_project(db: Session, project: Project) -> None:
+    jobs = db.query(Job).filter(Job.project_id == project.id).all()
+    
+    for job in jobs:
+        if job.working_dir and Path(job.working_dir).exists():
+            shutil.rmtree(job.working_dir, ignore_errors=True)
+
+    project_uploads_dir = UPLOADS_DIR / str(project.id)
+    if project_uploads_dir.exists():
+        shutil.rmtree(project_uploads_dir, ignore_errors=True)
+
+    db.delete(project)
+    db.commit()
+
+
+def delete_upload(db: Session, upload: UploadFile) -> None:
+    if upload.stored_path and Path(upload.stored_path).exists():
+        try:
+            os.remove(upload.stored_path)
+        except OSError:
+            pass
+
+    db.delete(upload)
+    db.commit()
