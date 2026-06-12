@@ -10,12 +10,23 @@ from app.models.job_step import JobStep
 from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.routers.deps import get_current_user
-from app.schemas.job import JobCreate, JobFileResponse, JobLogsResponse, JobResponse, JobStepResponse
+from app.schemas.job import (
+    JobCommentCreate,
+    JobCommentResponse,
+    JobCreate,
+    JobFileResponse,
+    JobLogsResponse,
+    JobResponse,
+    JobStepResponse,
+)
 from app.services.jobs import (
+    create_job_comment,
     create_job,
     get_tool_specs,
+    list_job_comments,
     list_job_files,
     read_job_logs,
+    serialize_job_comment,
     serialize_job,
     serialize_job_step,
     start_job_runner,
@@ -83,9 +94,40 @@ def delete_job_endpoint(
     job = _get_job_for_user(db, current_user, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-        
+
     delete_job(db, job)
-    return 
+    return
+
+
+@router.get("/jobs/{job_id}/comments", response_model=list[JobCommentResponse])
+def list_job_comments_endpoint(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    job = _get_job_for_user(db, current_user, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return [JobCommentResponse(**serialize_job_comment(comment)) for comment in list_job_comments(db, job)]
+
+
+@router.post("/jobs/{job_id}/comments", response_model=JobCommentResponse)
+def create_job_comment_endpoint(
+    job_id: int,
+    payload: JobCommentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    job = _get_job_for_user(db, current_user, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    try:
+        comment = create_job_comment(db, job, current_user, payload.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JobCommentResponse(**serialize_job_comment(comment))
 
 
 @router.get("/jobs/{job_id}/steps", response_model=list[JobStepResponse])

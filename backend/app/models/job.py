@@ -21,4 +21,4 @@ class Job(Base):
 
     project = relationship("Project", back_populates="jobs")
     steps = relationship("JobStep", back_populates="job", cascade="all, delete-orphan")
-
+    comments = relationship("JobComment", back_populates="job", cascade="all, delete-orphan")

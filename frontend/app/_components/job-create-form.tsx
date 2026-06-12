@@ -382,8 +382,11 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
               const acceptedFileTypes = getAcceptedFileTypes(step, toolSpec);
               const compatibleUploads = getCompatibleUploads(step, toolSpec, uploads);
               const compatibleUpstreamSteps = getCompatibleUpstreamSteps(index, step, selectedSteps, toolSpecs);
+              const selectedExtraOptionCount = extraOptions.filter((definition) =>
+                step.options.some((option) => option.key === definition.key),
+              ).length;
               return (
-              <div key={`${step.step_name}-${index}`} className="rounded-[1.5rem] border border-line/40 bg-background/50 p-4 shadow-inner sm:p-5">
+              <div key={`${step.step_name}-${index}`} className="rounded-[1.5rem] border border-line/40 bg-background p-4 shadow-inner sm:p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">{step.step_name}</p>
@@ -420,7 +423,7 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
                   </select>
                 </label>
                 {toolSpec ? (
-                  <div className="mt-4 rounded-2xl border border-line/30 bg-card/80 p-4">
+                  <div className="mt-4 rounded-2xl border border-line/30 bg-card p-4">
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold">{toolSpec.name}</p>
@@ -487,76 +490,83 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
                       </div>
                     ) : null}
                     {toolSpec.option_definitions.length ? (
-                      <div className="mt-5 space-y-3 border-t border-line/30 pt-4">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-muted">Flagi dodatkowe</p>
-                        {extraOptions.map((definition) => {
-                          const selected = step.options.find((item) => item.key === definition.key);
-                          return (
-                            <div key={definition.key} className="rounded-2xl border border-line/50 bg-background/70 p-4 transition-colors hover:border-line">
-                              <label className="flex items-start gap-3 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  className="mt-0.5 accent-accent"
-                                  checked={Boolean(selected)}
-                                  onChange={() =>
-                                    updateStep(index, {
-                                      ...step,
-                                      options: toggleOption(step, definition),
-                                    })
-                                  }
-                                />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-sm font-medium">
-                                    <span className="mr-1 break-all font-mono text-accent">{definition.flag}</span>
-                                    {definition.label}
-                                  </span>
-                                  <span className="mt-1 block text-xs text-muted/80">
-                                    {definition.description}
-                                  </span>
-                                </span>
-                              </label>
-                              {selected && definition.value_type !== "boolean" ? (
-                                definition.choices.length ? (
-                                  <select
-                                    className="mt-3 w-full rounded-2xl border border-line bg-background px-4 py-2.5 text-sm outline-none focus:border-accent"
-                                    value={selected.value ?? ""}
-                                    onChange={(event) =>
-                                      updateStep(index, {
-                                        ...step,
-                                        options: updateOptionValue(step, definition.key, event.target.value),
-                                      })
-                                    }
-                                  >
-                                    <option value="">Wybierz wartość</option>
-                                    {definition.choices.map((choice) => (
-                                      <option key={choice} value={choice}>
-                                        {choice}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
+                      <details open className="mt-5 border-t border-line/30 pt-4">
+                        <summary className="flex cursor-pointer select-none items-center justify-between gap-3 rounded-2xl px-2 py-2 text-xs font-semibold uppercase tracking-wider text-muted transition-colors hover:bg-line/50">
+                          <span>Flagi dodatkowe</span>
+                          <span className="rounded-full bg-card px-2 py-1 text-[10px] normal-case tracking-normal">
+                            {selectedExtraOptionCount}/{extraOptions.length} wybranych
+                          </span>
+                        </summary>
+                        <div className="mt-3 space-y-3">
+                          {extraOptions.map((definition) => {
+                            const selected = step.options.find((item) => item.key === definition.key);
+                            return (
+                              <div key={definition.key} className="rounded-2xl border border-line/50 bg-background p-4 transition-colors hover:border-line">
+                                <label className="flex cursor-pointer items-start gap-3">
                                   <input
-                                    className="mt-3 w-full rounded-2xl border border-line bg-background px-4 py-2.5 text-sm outline-none focus:border-accent"
-                                    value={selected.value ?? ""}
-                                    onChange={(event) =>
+                                    type="checkbox"
+                                    className="mt-0.5 accent-accent"
+                                    checked={Boolean(selected)}
+                                    onChange={() =>
                                       updateStep(index, {
                                         ...step,
-                                        options: updateOptionValue(step, definition.key, event.target.value),
+                                        options: toggleOption(step, definition),
                                       })
                                     }
-                                    placeholder={definition.placeholder ?? "Wpisz wartość"}
                                   />
-                                )
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                        {!extraOptions.length ? (
-                          <p className="text-xs text-muted italic">
-                            Dla wybranego wariantu brak dodatkowych flag.
-                          </p>
-                        ) : null}
-                      </div>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block text-sm font-medium">
+                                      <span className="mr-1 break-all font-mono text-accent">{definition.flag}</span>
+                                      {definition.label}
+                                    </span>
+                                    <span className="mt-1 block text-xs text-muted/80">
+                                      {definition.description}
+                                    </span>
+                                  </span>
+                                </label>
+                                {selected && definition.value_type !== "boolean" ? (
+                                  definition.choices.length ? (
+                                    <select
+                                      className="mt-3 w-full rounded-2xl border border-line bg-background px-4 py-2.5 text-sm outline-none focus:border-accent"
+                                      value={selected.value ?? ""}
+                                      onChange={(event) =>
+                                        updateStep(index, {
+                                          ...step,
+                                          options: updateOptionValue(step, definition.key, event.target.value),
+                                        })
+                                      }
+                                    >
+                                      <option value="">Wybierz wartość</option>
+                                      {definition.choices.map((choice) => (
+                                        <option key={choice} value={choice}>
+                                          {choice}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      className="mt-3 w-full rounded-2xl border border-line bg-background px-4 py-2.5 text-sm outline-none focus:border-accent"
+                                      value={selected.value ?? ""}
+                                      onChange={(event) =>
+                                        updateStep(index, {
+                                          ...step,
+                                          options: updateOptionValue(step, definition.key, event.target.value),
+                                        })
+                                      }
+                                      placeholder={definition.placeholder ?? "Wpisz wartość"}
+                                    />
+                                  )
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                          {!extraOptions.length ? (
+                            <p className="text-xs italic text-muted">
+                              Dla wybranego wariantu brak dodatkowych flag.
+                            </p>
+                          ) : null}
+                        </div>
+                      </details>
                     ) : null}
                   </div>
                 ) : null}
@@ -574,32 +584,12 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
                           : "Używa wyników z poprzednich kroków"}
                       </span>
                     </div>
-                    {requiresProjectInputs && step.input_source === "project" ? (
-                      <div className="flex shrink-0 gap-2">
-                        <button
-                          type="button"
-                          className="pill rounded-full px-3 py-1 text-[10px] font-medium transition-colors hover:bg-white/10"
-                          onClick={() => updateStep(index, selectAllCompatible(step))}
-                          disabled={compatibleUploads.length === 0}
-                        >
-                          Wszystkie
-                        </button>
-                        <button
-                          type="button"
-                          className="pill rounded-full px-3 py-1 text-[10px] font-medium transition-colors hover:bg-white/10"
-                          onClick={() => updateStep(index, clearSelectedFiles(step))}
-                          disabled={step.input_file_ids.length === 0}
-                        >
-                          Wyczyść
-                        </button>
-                      </div>
-                    ) : null}
                   </div>
                   {requiresProjectInputs ? (
                     <div className="mb-4 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all ${step.input_source === "project" ? "bg-accent/20 text-accent border border-accent/30 shadow-[0_0_10px_rgba(16,185,129,0.1)]" : "border border-line/50 hover:bg-white/5 text-muted"}`}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all ${step.input_source === "project" ? "bg-accent/20 text-accent border border-accent/30 shadow-[0_0_10px_rgba(16,185,129,0.1)]" : "border border-line/50 hover:bg-line/50 text-muted"}`}
                         onClick={() =>
                           updateStep(index, {
                             ...step,
@@ -614,7 +604,7 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
                         type="button"
                         disabled={!compatibleUpstreamSteps.length}
                         className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
-                          step.input_source === "step" ? "bg-accent/20 text-accent border border-accent/30 shadow-[0_0_10px_rgba(16,185,129,0.1)]" : "border border-line/50 hover:bg-white/5 text-muted"
+                          step.input_source === "step" ? "bg-accent/20 text-accent border border-accent/30 shadow-[0_0_10px_rgba(16,185,129,0.1)]" : "border border-line/50 hover:bg-line/50 text-muted"
                         } disabled:opacity-30 disabled:hover:bg-transparent`}
                         onClick={() =>
                           updateStep(index, {
@@ -660,43 +650,71 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
                         </p>
                       )
                     ) : (
-                      <div className="grid gap-2 mt-3">
-                        {compatibleUploads.length ? (
-                          compatibleUploads.map((file) => {
-                            const checked = step.input_file_ids.includes(file.id);
-                            return (
-                              <label
-                                key={file.id}
-                                className={`flex items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm cursor-pointer transition-all ${
-                                  checked
-                                    ? "border-accent/50 bg-accent/10"
-                                    : "border-line/40 bg-white/5 hover:border-line"
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="accent-accent"
-                                  checked={checked}
-                                  onChange={() => {
-                                    updateStep(index, {
-                                      ...step,
-                                      input_file_ids: toggleFile(step, file.id),
-                                    });
-                                  }}
-                                />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block break-words font-medium">{file.original_name}</span>
-                                  <span className="block text-[10px] uppercase tracking-widest text-muted">{file.file_type}</span>
-                                </span>
-                              </label>
-                            );
-                          })
-                        ) : (
-                          <p className="text-xs italic text-muted/70 mt-1">
-                            Brak pasujących plików w projekcie. Zmień typ danych wejściowych w opcjach, lub wgraj nowe pliki.
-                          </p>
-                        )}
-                      </div>
+                      <details open className="mt-3 rounded-2xl border border-line/40 bg-card">
+                        <summary className="flex cursor-pointer select-none items-center justify-between gap-3 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted transition-colors hover:bg-line/50">
+                          <span>Pasujące pliki projektu</span>
+                          <span className="rounded-full bg-background px-2 py-1 text-[10px] normal-case tracking-normal">
+                            {step.input_file_ids.length}/{compatibleUploads.length} wybranych
+                          </span>
+                        </summary>
+                        <div className="space-y-3 border-t border-line/40 p-3">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className="pill rounded-full px-3 py-1 text-[10px] font-medium transition-colors hover:bg-line/60"
+                              onClick={() => updateStep(index, selectAllCompatible(step))}
+                              disabled={compatibleUploads.length === 0}
+                            >
+                              Wszystkie
+                            </button>
+                            <button
+                              type="button"
+                              className="pill rounded-full px-3 py-1 text-[10px] font-medium transition-colors hover:bg-line/60"
+                              onClick={() => updateStep(index, clearSelectedFiles(step))}
+                              disabled={step.input_file_ids.length === 0}
+                            >
+                              Wyczyść
+                            </button>
+                          </div>
+                          <div className="grid gap-2">
+                            {compatibleUploads.length ? (
+                              compatibleUploads.map((file) => {
+                                const checked = step.input_file_ids.includes(file.id);
+                                return (
+                                  <label
+                                    key={file.id}
+                                    className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm transition-all ${
+                                      checked
+                                        ? "border-accent/50 bg-accent/10"
+                                        : "border-line/40 bg-background hover:border-line"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="accent-accent"
+                                      checked={checked}
+                                      onChange={() => {
+                                        updateStep(index, {
+                                          ...step,
+                                          input_file_ids: toggleFile(step, file.id),
+                                        });
+                                      }}
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block break-words font-medium">{file.original_name}</span>
+                                      <span className="block text-[10px] uppercase tracking-widest text-muted">{file.file_type}</span>
+                                    </span>
+                                  </label>
+                                );
+                              })
+                            ) : (
+                              <p className="text-xs italic text-muted/70">
+                                Brak pasujących plików w projekcie. Zmień typ danych wejściowych w opcjach, lub wgraj nowe pliki.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </details>
                     )
                   ) : (
                     <p className="rounded-2xl border border-dashed border-line/40 px-4 py-3 text-xs italic text-muted/70 mt-3">
@@ -708,7 +726,7 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
               );
             })
           ) : (
-            <div className="flex flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-line/30 bg-white/5 p-8 text-center">
+            <div className="flex flex-col items-center justify-center rounded-[1.5rem] border-2 border-dashed border-line/30 bg-background p-8 text-center">
               <p className="text-sm font-medium text-muted">Nie dodano żadnych kroków do pipeline&apos;u.</p>
               <p className="text-xs text-muted/60 mt-1">Kliknij &quot;Dodaj krok&quot;, aby rozpocząć budowę analizy.</p>
             </div>

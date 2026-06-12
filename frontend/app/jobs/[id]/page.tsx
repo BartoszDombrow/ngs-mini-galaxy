@@ -1,12 +1,13 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { type FormEvent } from "react";
 import { useEffect, useState, useRef } from "react";
 
 import { AppShell } from "@/app/_components/app-shell";
 import { API_URL, apiRequest } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import { Job, JobFile, JobLogs, JobStep } from "@/types";
+import { Job, JobComment, JobFile, JobLogs, JobStep } from "@/types";
 
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
@@ -15,6 +16,10 @@ export default function JobDetailPage() {
   const [steps, setSteps] = useState<JobStep[]>([]);
   const [logs, setLogs] = useState<JobLogs | null>(null);
   const [files, setFiles] = useState<JobFile[]>([]);
+  const [comments, setComments] = useState<JobComment[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [isPostingComment, setIsPostingComment] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const previewModalRef = useRef<HTMLDialogElement>(null);
@@ -81,6 +86,30 @@ export default function JobDetailPage() {
     }
   }
 
+  async function submitComment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const content = commentText.trim();
+    if (!content) {
+      setCommentError("Wpisz treść komentarza.");
+      return;
+    }
+
+    setIsPostingComment(true);
+    setCommentError(null);
+    try {
+      const comment = await apiRequest<JobComment>(`/jobs/${jobId}/comments`, {
+        method: "POST",
+        body: JSON.stringify({ content }),
+      });
+      setComments((current) => [...current, comment]);
+      setCommentText("");
+    } catch (err) {
+      setCommentError(err instanceof Error ? err.message : "Nie udało się dodać komentarza.");
+    } finally {
+      setIsPostingComment(false);
+    }
+  }
+
   useEffect(() => {
     if (!jobId) {
       return;
@@ -90,11 +119,12 @@ export default function JobDetailPage() {
 
     async function load() {
       try {
-        const [jobData, stepData, logData, fileData] = await Promise.all([
+        const [jobData, stepData, logData, fileData, commentData] = await Promise.all([
           apiRequest<Job>(`/jobs/${jobId}`),
           apiRequest<JobStep[]>(`/jobs/${jobId}/steps`),
           apiRequest<JobLogs>(`/jobs/${jobId}/logs`),
           apiRequest<JobFile[]>(`/jobs/${jobId}/files`),
+          apiRequest<JobComment[]>(`/jobs/${jobId}/comments`),
         ]);
         if (!active) {
           return;
@@ -103,6 +133,7 @@ export default function JobDetailPage() {
         setSteps(stepData);
         setLogs(logData);
         setFiles(fileData);
+        setComments(commentData);
       } catch (err) {
         if (!active) {
           return;
@@ -200,16 +231,74 @@ export default function JobDetailPage() {
                   ? Object.entries(logs.logs).map(([stepName, content]) => (
                       <div key={stepName} className="rounded-2xl border border-line bg-[#172118] p-4 text-xs text-[#d9f0d4]">
                         <p className="mb-2 font-semibold text-white">{stepName}</p>
-                        <pre className="overflow-x-auto whitespace-pre-wrap">{content.stdout || "Brak danych stdout."}</pre>
-                        {content.stderr ? (
-                          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap border-t border-white/10 pt-3 text-[#ffcbcb]">
-                            {content.stderr}
-                          </pre>
-                        ) : null}
+                        <div className="max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+                          <pre className="overflow-x-auto whitespace-pre-wrap break-words">{content.stdout || "Brak danych stdout."}</pre>
+                          {content.stderr ? (
+                            <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words border-t border-white/10 pt-3 text-[#ffcbcb]">
+                              {content.stderr}
+                            </pre>
+                          ) : null}
+                        </div>
                       </div>
                     ))
                   : null}
               </div>
+            </div>
+            <div className="card rounded-[2rem] p-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">Komentarze</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    Widoczne dla osób mających dostęp do projektu.
+                  </p>
+                </div>
+                <span className="w-fit rounded-full bg-accent/10 px-3 py-1 text-xs font-bold text-accent">
+                  {comments.length} wpisów
+                </span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {comments.length ? (
+                  comments.map((comment) => (
+                    <article key={comment.id} className="pill rounded-2xl px-4 py-3 text-sm">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <span className="font-medium text-foreground">{comment.author_email}</span>
+                        <time className="text-xs text-muted" dateTime={comment.created_at}>
+                          {new Date(comment.created_at).toLocaleString()}
+                        </time>
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap break-words text-muted">{comment.content}</p>
+                    </article>
+                  ))
+                ) : (
+                  <p className="rounded-2xl border border-dashed border-line px-4 py-4 text-sm text-muted">
+                    Brak komentarzy dla tej analizy.
+                  </p>
+                )}
+              </div>
+              <form className="mt-4" onSubmit={(event) => void submitComment(event)}>
+                <label className="block">
+                  <span className="mb-2 block text-sm text-muted">Dodaj komentarz</span>
+                  <textarea
+                    className="min-h-24 w-full resize-y rounded-2xl border border-line bg-background px-4 py-3 text-sm outline-none focus:border-accent"
+                    value={commentText}
+                    onChange={(event) => setCommentText(event.target.value)}
+                    placeholder="Np. interpretacja wyniku, uwagi do parametrów albo dalsze kroki."
+                    maxLength={2000}
+                  />
+                </label>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-h-5 text-sm">
+                    {commentError ? <span className="text-danger">{commentError}</span> : null}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isPostingComment || !commentText.trim()}
+                    className="rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                  >
+                    {isPostingComment ? "Dodawanie..." : "Dodaj komentarz"}
+                  </button>
+                </div>
+              </form>
             </div>
             <div className="card rounded-[2rem] p-6">
               <h2 className="text-lg font-semibold">Wygenerowane pliki</h2>

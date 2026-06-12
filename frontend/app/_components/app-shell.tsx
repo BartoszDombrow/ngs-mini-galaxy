@@ -20,6 +20,7 @@ export function AppShell({ children }: PropsWithChildren) {
     () => Boolean(getToken()),
     () => false,
   );
+  const visibleNavItems = navItems.filter((item) => item.href !== "/login" || !hasToken);
 
   return (
     <div className="min-h-screen">
@@ -32,7 +33,7 @@ export function AppShell({ children }: PropsWithChildren) {
             <p className="text-sm text-muted">Przesyłanie FASTQ, pipeline, logi i wyniki analiz</p>
           </div>
           <nav className="flex items-center gap-3">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

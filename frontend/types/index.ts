@@ -133,6 +133,15 @@ export type Job = {
   working_dir: string;
 };
 
+export type JobComment = {
+  id: number;
+  job_id: number;
+  user_id: number;
+  author_email: string;
+  content: string;
+  created_at: string;
+};
+
 export type JobStep = {
   id: number;
   job_id: number;

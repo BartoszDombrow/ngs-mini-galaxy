@@ -18,3 +18,4 @@ class User(Base):
     project_memberships = relationship("ProjectMember", back_populates="user", cascade="all, delete-orphan")
     project_import_jobs = relationship("ProjectImportJob", back_populates="requested_by")
     upload_sessions = relationship("UploadSession", back_populates="created_by")
+    job_comments = relationship("JobComment", back_populates="user", cascade="all, delete-orphan")

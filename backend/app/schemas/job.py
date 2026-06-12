@@ -29,6 +29,19 @@ class JobCreate(BaseModel):
     selected_steps: list[PipelineStepConfig] = Field(min_length=1)
 
 
+class JobCommentCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class JobCommentResponse(BaseModel):
+    id: int
+    job_id: int
+    user_id: int
+    author_email: str
+    content: str
+    created_at: datetime
+
+
 class JobResponse(BaseModel):
     id: int
     project_id: int

@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session
 from app.core.config import JOBS_DIR, RESULTS_DIR
 from app.db.session import SessionLocal
 from app.models.job import Job
+from app.models.job_comment import JobComment
 from app.models.job_step import JobStep
 from app.models.project import Project
 from app.models.upload_file import UploadFile
+from app.models.user import User
 
 
 TOOL_SPECS = {
@@ -1070,6 +1072,38 @@ def serialize_job(job: Job) -> dict:
         "finished_at": job.finished_at,
         "working_dir": job.working_dir,
     }
+
+
+def serialize_job_comment(comment: JobComment) -> dict:
+    return {
+        "id": comment.id,
+        "job_id": comment.job_id,
+        "user_id": comment.user_id,
+        "author_email": comment.user.email,
+        "content": comment.content,
+        "created_at": comment.created_at,
+    }
+
+
+def list_job_comments(db: Session, job: Job) -> list[JobComment]:
+    return (
+        db.query(JobComment)
+        .filter(JobComment.job_id == job.id)
+        .order_by(JobComment.created_at.asc(), JobComment.id.asc())
+        .all()
+    )
+
+
+def create_job_comment(db: Session, job: Job, user: User, content: str) -> JobComment:
+    normalized_content = content.strip()
+    if not normalized_content:
+        raise ValueError("Comment cannot be empty")
+
+    comment = JobComment(job_id=job.id, user_id=user.id, content=normalized_content)
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return comment
 
 
 def list_job_files(job: Job) -> list[dict[str, str]]:

@@ -7,7 +7,7 @@ from sqlalchemy import inspect, text
 from app.core.config import CORS_ORIGINS, ensure_directories
 from app.db.base import Base
 from app.db.session import engine
-from app.models import job, job_step, project, project_import_job, project_member, upload_file, upload_session, user
+from app.models import job, job_comment, job_step, project, project_import_job, project_member, upload_file, upload_session, user
 from app.routers.auth import router as auth_router
 from app.routers.jobs import router as jobs_router
 from app.routers.projects import router as projects_router
