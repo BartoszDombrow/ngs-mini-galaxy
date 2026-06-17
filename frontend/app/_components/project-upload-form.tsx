@@ -12,6 +12,15 @@ type ProjectUploadFormProps = {
   onUploaded: (files: UploadFileItem[]) => void;
 };
 
+type GenomeSearchResult = {
+  id: string;
+  accession: string;
+  title: string;
+  organism: string;
+  source: string;
+  length: number | null;
+};
+
 type LocalUploadSnapshot = {
   fingerprint: string;
   sessionId: number | null;
@@ -23,7 +32,7 @@ type LocalUploadSnapshot = {
 };
 
 type UploadSessionSnapshot = {
-  mode: "local" | "sra";
+  mode: "local" | "sra" | "genomes";
   toolName: "fastq-dump" | "fasterq-dump";
   accessions: string;
   activityLog: string[];
@@ -51,11 +60,15 @@ function formatBytes(bytes: number) {
 }
 
 export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormProps) {
-  const [mode, setMode] = useState<"local" | "sra">("local");
+  const [mode, setMode] = useState<"local" | "sra" | "genomes">("local");
   const [files, setFiles] = useState<File[]>([]);
   const [selectedFileNames, setSelectedFileNames] = useState<string[]>([]);
   const [toolName, setToolName] = useState<"fastq-dump" | "fasterq-dump">("fasterq-dump");
   const [accessions, setAccessions] = useState("");
+  const [genomeSource, setGenomeSource] = useState<"ncbi" | "ensembl">("ncbi");
+  const [genomeQuery, setGenomeQuery] = useState("");
+  const [genomeResults, setGenomeResults] = useState<GenomeSearchResult[]>([]);
+  const [isSearchingGenomes, setIsSearchingGenomes] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activityLog, setActivityLog] = useState<string[]>([]);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -373,6 +386,51 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
     }
   }
 
+  async function onGenomeSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!genomeQuery.trim()) return;
+    setIsSearchingGenomes(true);
+    try {
+      const results = await apiRequest<GenomeSearchResult[]>(
+        `/system/genomes/search?query=${encodeURIComponent(genomeQuery)}&source=${genomeSource}`
+      );
+      setGenomeResults(results);
+      if (results.length === 0) {
+        setError("Nic nie znaleziono.");
+      } else {
+        setError(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Błąd wyszukiwania genomów");
+      setGenomeResults([]);
+    } finally {
+      setIsSearchingGenomes(false);
+    }
+  }
+
+  async function importGenome(genome: GenomeSearchResult) {
+    setError(null);
+    const tool = genome.source === "ncbi" ? "ncbi-genome-fetch" : "ensembl-genome-fetch";
+    beginActivity([
+      `Rozpoczynam pobieranie genomu (${genome.source.toUpperCase()}).`,
+      `Accession: ${genome.accession}`,
+      "Pobieranie działa w tle po stronie serwera.",
+    ]);
+
+    try {
+      const job = await apiRequest<ImportJob>(`/projects/${projectId}/import-jobs`, {
+        method: "POST",
+        body: JSON.stringify({ tool_name: tool, accessions: [genome.accession] }),
+      });
+      setActiveImportJob(job);
+      appendLog(`Utworzono zadanie importu #${job.id} dla ${genome.accession}.`);
+    } catch (err) {
+      appendLog("Nie udało się utworzyć zadania importu.");
+      setError(err instanceof Error ? err.message : "Import nie powiódł się");
+      endActivity();
+    }
+  }
+
   return (
     <div className="rounded-[1.5rem]">
       <h2 className="text-lg font-semibold">Dodawanie plików projektu</h2>
@@ -429,6 +487,13 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
         >
           SRA import
         </button>
+        <button
+          type="button"
+          className={`rounded-full px-4 py-2 text-sm ${mode === "genomes" ? "bg-accent text-white" : "pill"}`}
+          onClick={() => setMode("genomes")}
+        >
+          Genomy referencyjne
+        </button>
       </div>
       {mode === "local" ? (
         <form onSubmit={onLocalSubmit}>
@@ -463,7 +528,7 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
             {isUploadingLocal ? "Wysyłanie..." : "Wyślij pliki"}
           </button>
         </form>
-      ) : (
+      ) : mode === "sra" ? (
         <form onSubmit={onSraSubmit}>
           <label className="mt-4 block">
             <span className="mb-2 block text-sm text-muted">Narzędzie importu</span>
@@ -488,7 +553,7 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
           <p className="mt-2 text-sm text-muted">
             Rozdziel accessiony przecinkami, spacjami albo nowymi liniami. `fastq-dump` zostawiłem tylko jako tryb kompatybilności.
           </p>
-          {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
+          {error && mode === "sra" ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
           <button
             type="submit"
             disabled={isImportRunning}
@@ -497,7 +562,67 @@ export function ProjectUploadForm({ projectId, onUploaded }: ProjectUploadFormPr
             {isImportRunning ? "Import działa w tle..." : "Uruchom import"}
           </button>
         </form>
-      )}
+      ) : mode === "genomes" ? (
+        <div className="mt-4">
+          <form onSubmit={onGenomeSearch}>
+            <div className="flex gap-4">
+              <label className="flex-1 block">
+                <span className="mb-2 block text-sm text-muted">Wyszukaj organizm lub ID</span>
+                <input
+                  type="text"
+                  className="w-full rounded-2xl border border-line bg-white px-4 py-3 outline-none focus:border-accent"
+                  value={genomeQuery}
+                  onChange={(event) => setGenomeQuery(event.target.value)}
+                  placeholder={genomeSource === "ncbi" ? "np. E. coli, SARS-CoV-2, NC_000913.3" : "np. human, sars_cov_2, ENSG00000139618"}
+                />
+              </label>
+              <label className="block w-40">
+                <span className="mb-2 block text-sm text-muted">Źródło</span>
+                <select
+                  className="w-full rounded-2xl border border-line bg-white px-4 py-3 outline-none focus:border-accent"
+                  value={genomeSource}
+                  onChange={(event) => setGenomeSource(event.target.value as "ncbi" | "ensembl")}
+                >
+                  <option value="ncbi">NCBI</option>
+                  <option value="ensembl">Ensembl</option>
+                </select>
+              </label>
+            </div>
+            {error && mode === "genomes" ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
+            <button
+              type="submit"
+              disabled={isSearchingGenomes || isImportRunning}
+              className="mt-4 rounded-2xl bg-accent px-5 py-3 font-medium text-white disabled:opacity-60"
+            >
+              {isSearchingGenomes ? "Wyszukiwanie..." : "Szukaj genomu"}
+            </button>
+          </form>
+
+          {genomeResults.length > 0 && (
+            <div className="mt-6 space-y-3">
+              <h3 className="text-sm font-semibold">Wyniki wyszukiwania:</h3>
+              {genomeResults.map((result) => (
+                <div key={result.id} className="pill flex items-center justify-between gap-4 rounded-2xl px-4 py-3">
+                  <div>
+                    <p className="font-medium">{result.title}</p>
+                    <p className="mt-1 text-xs text-muted">
+                      Organizm: {result.organism} | ID: {result.accession}
+                      {result.length ? ` | Długość: ${(result.length / 1000000).toFixed(2)} Mbps` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => importGenome(result)}
+                    disabled={isImportRunning}
+                    className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  >
+                    Pobierz
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "NGS Mini Galaxy",
-  description: "Academic web app for basic NGS pipeline orchestration.",
+  description: "Webowa platforma do analiz bioinformatycznych i orkiestracji potoków NGS.",
 };
 
 export default function RootLayout({

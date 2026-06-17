@@ -16,7 +16,7 @@ from app.models.user import User
 from app.services.files import find_imported_files, register_stored_file
 
 
-SUPPORTED_IMPORT_TOOLS = {"fastq-dump", "fasterq-dump"}
+SUPPORTED_IMPORT_TOOLS = {"fastq-dump", "fasterq-dump", "ncbi-genome-fetch", "ensembl-genome-fetch"}
 
 
 def create_import_job(db: Session, project: Project, user: User, tool_name: str, accessions: list[str]) -> ProjectImportJob:
@@ -100,8 +100,9 @@ def _run_import_job(import_job_id: int) -> None:
 
         if job.tool_name not in SUPPORTED_IMPORT_TOOLS:
             raise ValueError(f"Unsupported import tool: {job.tool_name}")
-        if which(job.tool_name) is None:
-            raise ValueError(f"Tool `{job.tool_name}` is not installed or not available in PATH")
+        if job.tool_name not in ["ncbi-genome-fetch", "ensembl-genome-fetch"]:
+            if which(job.tool_name) is None:
+                raise ValueError(f"Tool `{job.tool_name}` is not installed or not available in PATH")
 
         imported_file_ids = json.loads(job.imported_file_ids or "[]")
         accessions = [item.strip() for item in json.loads(job.accessions) if item.strip()]
@@ -110,34 +111,57 @@ def _run_import_job(import_job_id: int) -> None:
 
         for accession in accessions:
             _append_log(db, job, f"Pobieram accession {accession}.")
-            command = [job.tool_name]
-            if job.tool_name == "fasterq-dump":
-                command.extend(["--split-files", "-O", str(project_dir), accession])
+            
+            if job.tool_name in ["ncbi-genome-fetch", "ensembl-genome-fetch"]:
+                import urllib.request
+                import urllib.error
+                import shutil
+                
+                output_path = project_dir / f"{accession}.fasta"
+                try:
+                    if job.tool_name == "ncbi-genome-fetch":
+                        url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id={accession}&rettype=fasta&retmode=text"
+                        req = urllib.request.Request(url)
+                    else:
+                        url = f"https://rest.ensembl.org/sequence/id/{accession}?type=genomic"
+                        req = urllib.request.Request(url, headers={"Content-Type": "text/x-fasta"})
+                    
+                    with urllib.request.urlopen(req) as response, open(output_path, "wb") as out_file:
+                        shutil.copyfileobj(response, out_file)
+                        
+                    _append_log(db, job, f"Pobrano pomyślnie {accession}.")
+                    matched_files = [output_path]
+                except urllib.error.URLError as e:
+                    raise ValueError(f"Błąd pobierania {accession}: {e}")
             else:
-                command.extend(["--split-files", "--gzip", "-O", str(project_dir), accession])
+                command = [job.tool_name]
+                if job.tool_name == "fasterq-dump":
+                    command.extend(["--split-files", "-O", str(project_dir), accession])
+                else:
+                    command.extend(["--split-files", "--gzip", "-O", str(project_dir), accession])
 
-            result = subprocess.run(
-                command,
-                cwd=project_dir,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            if result.stdout.strip():
-                _append_log(db, job, result.stdout.strip())
-            if result.stderr.strip():
-                _append_log(db, job, result.stderr.strip())
-            if result.returncode != 0:
-                raise ValueError(
-                    f"{job.tool_name} failed for accession {accession}: "
-                    f"{result.stderr.strip() or result.stdout.strip() or 'unknown error'}"
+                result = subprocess.run(
+                    command,
+                    cwd=project_dir,
+                    check=False,
+                    capture_output=True,
+                    text=True,
                 )
+                if result.stdout.strip():
+                    _append_log(db, job, result.stdout.strip())
+                if result.stderr.strip():
+                    _append_log(db, job, result.stderr.strip())
+                if result.returncode != 0:
+                    raise ValueError(
+                        f"{job.tool_name} failed for accession {accession}: "
+                        f"{result.stderr.strip() or result.stdout.strip() or 'unknown error'}"
+                    )
 
-            matched_files = find_imported_files(project_dir, accession)
-            if not matched_files:
-                raise ValueError(f"No FASTQ files were produced for accession {accession}")
+                matched_files = find_imported_files(project_dir, accession)
+                if not matched_files:
+                    raise ValueError(f"No FASTQ files were produced for accession {accession}")
+                _append_log(db, job, f"Znaleziono {len(matched_files)} plik(ów) dla {accession}.")
 
-            _append_log(db, job, f"Znaleziono {len(matched_files)} plik(ów) dla {accession}.")
             for path in matched_files:
                 upload = register_stored_file(db, project, path.name, path)
                 imported_file_ids.append(upload.id)

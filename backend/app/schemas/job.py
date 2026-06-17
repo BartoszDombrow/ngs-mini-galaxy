@@ -81,3 +81,7 @@ class JobFileResponse(BaseModel):
     name: str
     path: str
     kind: str
+
+
+class JobFilePromoteRequest(BaseModel):
+    path: str

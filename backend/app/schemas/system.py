@@ -27,3 +27,12 @@ class ToolSpecResponse(BaseModel):
     runner_mode: str
     accepted_file_types: list[str] = Field(default_factory=list)
     option_definitions: list[ToolOptionDefinitionResponse] = Field(default_factory=list)
+
+
+class GenomeSearchResult(BaseModel):
+    id: str
+    accession: str
+    title: str
+    organism: str
+    source: str
+    length: int | None = None

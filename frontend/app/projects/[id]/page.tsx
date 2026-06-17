@@ -9,7 +9,7 @@ import { JobCreateForm } from "@/app/_components/job-create-form";
 import { ProjectCollaboratorsCard } from "@/app/_components/project-collaborators-card";
 import { ProjectUploadForm } from "@/app/_components/project-upload-form";
 import { apiRequest } from "@/lib/api";
-import { Job, ProjectDetail, ProjectMember, UploadFileItem } from "@/types";
+import { Job, PipelineStepConfig, ProjectDetail, ProjectMember, UploadFileItem } from "@/types";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -22,6 +22,8 @@ export default function ProjectDetailPage() {
 
   const jobModalRef = useRef<HTMLDialogElement>(null);
   const filesModalRef = useRef<HTMLDialogElement>(null);
+
+  const [initialJobConfig, setInitialJobConfig] = useState<{ sampleName: string; steps: PipelineStepConfig[] } | null>(null);
 
   useEffect(() => {
     if (!projectId) {
@@ -141,7 +143,10 @@ export default function ProjectDetailPage() {
 
             <div className="flex w-full shrink-0 flex-col gap-3 md:w-[220px]">
               <button
-                onClick={() => jobModalRef.current?.showModal()}
+                onClick={() => {
+                  setInitialJobConfig(null);
+                  jobModalRef.current?.showModal();
+                }}
                 className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-accent to-accent-strong px-6 py-3.5 text-sm font-bold text-background shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all duration-300 hover:scale-105 hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] active:scale-95"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
@@ -208,13 +213,26 @@ export default function ProjectDetailPage() {
                             {job.status}
                           </span>
                       </Link>
-                      <button
-                        onClick={(e) => deleteJob(e, job.id)}
-                        className="shrink-0 rounded-full p-2 text-muted opacity-100 transition-colors hover:text-danger sm:opacity-0 sm:group-hover:opacity-100"
-                        title="Usuń analizę"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                      </button>
+                      <div className="shrink-0 flex items-center gap-1 opacity-100 transition-colors sm:opacity-0 sm:group-hover:opacity-100">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setInitialJobConfig({ sampleName: `${job.sample_name} (kopia)`, steps: job.selected_steps });
+                            jobModalRef.current?.showModal();
+                          }}
+                          className="rounded-full p-2 text-muted hover:text-accent"
+                          title="Ponów (zduplikuj ustawienia)"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <button
+                          onClick={(e) => deleteJob(e, job.id)}
+                          className="rounded-full p-2 text-muted hover:text-danger"
+                          title="Usuń analizę"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        </button>
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -255,6 +273,8 @@ export default function ProjectDetailPage() {
           <JobCreateForm
             projectId={projectId}
             uploads={project?.uploads ?? []}
+            initialSampleName={initialJobConfig?.sampleName}
+            initialSteps={initialJobConfig?.steps}
             onCreated={(job) => {
               onJobCreated(job);
               jobModalRef.current?.close();

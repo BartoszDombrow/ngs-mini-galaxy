@@ -1,112 +1,46 @@
 # NGS Mini Galaxy
 
-Academic MVP inspired by Galaxy for basic NGS analysis from FASTQ files.
+Projekt akademicki (MVP) inspirowany platformą Galaxy, przeznaczony do podstawowej analizy danych NGS (sekwencjonowania nowej generacji) z plików FASTQ.
 
-## Stack
+## Technologie
 
-- Frontend: Next.js 16, App Router, TypeScript, Tailwind CSS
-- Backend: FastAPI, SQLite, SQLAlchemy, JWT auth
-- Pipeline: fake runner now, real subprocess-based bioinformatics tools later
+- **Frontend:** Next.js 16 (App Router), TypeScript, Tailwind CSS
+- **Backend:** FastAPI, SQLite, SQLAlchemy, uwierzytelnianie JWT
+- **Narzędzia bioinformatyczne:** integracja z wierszem poleceń (np. FastQC, bwa, samtools).
 
-## Repository Layout
+## Struktura repozytorium
 
-- `frontend/` - web UI for auth, dashboard, projects, uploads, and job views
-- `backend/` - FastAPI app split into `routers`, `models`, `schemas`, and `services`
-- `docs/` - project plan and specification
-- `scripts/install-bio-tools.sh` - helper installer for required CLI tools
+- `frontend/` - interfejs użytkownika (logowanie, kokpit, projekty, przesyłanie plików, widoki zadań)
+- `backend/` - aplikacja API (podzielona logicznie na `routers`, `models`, `schemas` i `services`)
+- `docs/` - plan projektu i specyfikacja
+- `scripts/install-bio-tools.sh` - skrypt pomocniczy do instalacji wymaganych narzędzi konsolowych w systemie
 
-## Run Locally
+## Uruchomienie za pomocą Dockera
 
-### Backend
+Uruchomienie w środowisku Dockerowym izoluje narzędzia obliczeniowe od środowiska lokalnego i zapewnia spójność.
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-Optional demo seed:
-
-```bash
-cd backend
-python -m seeds.demo_seed
-```
-
-Demo credentials: `demo@example.com` / `demo12345`
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
-```
-
-Frontend expects the API at `http://127.0.0.1:8000` by default.
-
-## Run With Docker
-
-This is the closest setup to the target deployment model: tools run on the application side, not on the user's machine.
-
+W głównym katalogu projektu uruchom komendę (flaga `--build` jest wymagana przy pierwszym uruchomieniu lub jeśli zmienisz pakiety w plikach `package.json` / `requirements.txt`):
 ```bash
 docker compose up --build
 ```
 
-Services:
+Do standardowego uruchomienia bez przebudowywania wystarczy wpisać:
+```bash
+docker compose up
+```
 
-- frontend: `http://localhost:3000`
-- backend API: `http://localhost:8000`
+Usługi po uruchomieniu będą dostępne pod adresami:
+- **Frontend:** `http://localhost:3000`
+- **Backend API:** `http://localhost:8000`
 
-Persistent data is stored in the Docker volume `backend-data`, including:
+Trwałe dane aplikacji przechowujemy w wolumenie `backend-data`. Zaliczają się do nich baza SQLite, wgrywane pliki FASTQ oraz pliki robocze i wyniki analiz.
 
-- SQLite database
-- uploaded FASTQ files
-- job work directories
-- generated outputs
-
-To stop the stack:
-
+Aby zatrzymać usługi, użyj:
 ```bash
 docker compose down
 ```
 
-To remove persisted backend data as well:
-
+Aby usunąć kontener wraz ze wszystkimi zapisanymi wynikami analiz i bazą danych:
 ```bash
 docker compose down -v
 ```
-
-## Bioinformatics Toolchain
-
-If you want to run the backend outside Docker, install the bioinformatics tools locally:
-
-```bash
-chmod +x scripts/install-bio-tools.sh
-./scripts/install-bio-tools.sh
-```
-
-The app exposes tool readiness at:
-
-```bash
-curl http://127.0.0.1:8000/system/tools
-```
-
-Expected tools:
-
-- `fastqc`
-- `multiqc`
-- `fastq-dump`
-- `fasterq-dump`
-- `bwa`
-- `samtools`
-- `bcftools`
-
-Notes:
-
-- `FastQC` needs Java installed.
-- `SRA Toolkit` provides `fastq-dump` and `fasterq-dump`.
-- The current job runner is still a fake runner, but the environment check is now ready for the real subprocess implementation.
-# ngs-mini-galaxy

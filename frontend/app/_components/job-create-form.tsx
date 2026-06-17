@@ -14,6 +14,8 @@ import {
 type JobCreateFormProps = {
   projectId: number;
   uploads: UploadFileItem[];
+  initialSampleName?: string;
+  initialSteps?: PipelineStepConfig[];
   onCreated: (job: Job) => void;
   onCancel?: () => void;
 };
@@ -25,6 +27,9 @@ const tools = [
   "bwa",
   "samtools",
   "bcftools",
+  "bcftools_filter",
+  "bcftools_stats",
+  "snpeff",
 ];
 
 const makeStep = (index: number): PipelineStepConfig => ({
@@ -85,7 +90,7 @@ function getAcceptedFileTypes(step: PipelineStepConfig, toolSpec: ToolSpec | nul
     if (subcommand === "faidx" || subcommand === "dict") {
       acceptedFileTypes = ["fasta"];
     } else if (
-      ["sort", "index", "flagstat", "stats", "idxstats", "depth", "view", "coverage", "quickcheck", "fasta", "fastq"].includes(subcommand)
+      ["sort", "index", "flagstat", "stats", "idxstats", "depth", "view", "coverage", "quickcheck", "fasta", "fastq", "fixmate", "markdup"].includes(subcommand)
     ) {
       acceptedFileTypes = ["bam", "sam", "cram"];
     }
@@ -119,8 +124,11 @@ function getStepOutputFileTypes(step: PipelineStepConfig, toolSpec: ToolSpec | n
   if (toolSpec.name === "bwa") {
     return ["bam"];
   }
-  if (toolSpec.name === "bcftools") {
+  if (toolSpec.name === "bcftools" || toolSpec.name === "bcftools_filter" || toolSpec.name === "snpeff") {
     return ["vcf"];
+  }
+  if (toolSpec.name === "bcftools_stats") {
+    return ["txt"];
   }
   if (toolSpec.name === "samtools") {
     const subcommand = step.options.find((item) => item.key === "subcommand")?.value ?? "sort";
@@ -137,6 +145,9 @@ function getStepOutputFileTypes(step: PipelineStepConfig, toolSpec: ToolSpec | n
     }
     if (subcommand === "faidx") {
       return ["fai"];
+    }
+    if (subcommand === "fixmate" || subcommand === "markdup") {
+      return ["bam"];
     }
   }
 
@@ -193,12 +204,17 @@ function sanitizeStepOptions(step: PipelineStepConfig, toolSpec: ToolSpec | null
   });
 }
 
-export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCreateFormProps) {
-  const [sampleName, setSampleName] = useState("");
-  const [selectedSteps, setSelectedSteps] = useState<PipelineStepConfig[]>([makeStep(0)]);
+export function JobCreateForm({ projectId, uploads, initialSampleName, initialSteps, onCreated, onCancel }: JobCreateFormProps) {
+  const [sampleName, setSampleName] = useState(initialSampleName ?? "");
+  const [selectedSteps, setSelectedSteps] = useState<PipelineStepConfig[]>(initialSteps?.length ? initialSteps : [makeStep(0)]);
   const [toolSpecs, setToolSpecs] = useState<ToolSpec[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setSampleName(initialSampleName ?? "");
+    setSelectedSteps(initialSteps?.length ? initialSteps : [makeStep(0)]);
+  }, [initialSampleName, initialSteps]);
 
   useEffect(() => {
     apiRequest<ToolSpec[]>("/system/tool-specs")
@@ -224,6 +240,48 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
         .filter((_, stepIndex) => stepIndex !== index)
         .map((step, stepIndex) => ({ ...step, step_name: `Krok ${stepIndex + 1}` })),
     );
+  }
+
+  function moveStep(index: number, direction: "up" | "down") {
+    setSelectedSteps((current) => {
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= current.length) return current;
+
+      const newSteps = [...current];
+      const temp = newSteps[index];
+      newSteps[index] = newSteps[targetIndex];
+      newSteps[targetIndex] = temp;
+
+      const originalOrderToIndex = current.map((_, i) => i);
+      originalOrderToIndex[index] = targetIndex;
+      originalOrderToIndex[targetIndex] = index;
+
+      return newSteps.map((step, stepIndex) => {
+        let nextInputSource = step.input_source;
+        let nextInputFrom = step.input_from_step_order;
+
+        if (nextInputSource === "step" && nextInputFrom !== null) {
+          const oldTargetIndex = nextInputFrom - 1;
+          const newTargetIndex = originalOrderToIndex[oldTargetIndex];
+          const newTargetOrder = newTargetIndex + 1;
+
+          if (newTargetOrder < stepIndex + 1) {
+            nextInputFrom = newTargetOrder;
+          } else {
+            nextInputSource = "project";
+            nextInputFrom = null;
+          }
+        }
+
+        return {
+          ...step,
+          step_name: `Krok ${stepIndex + 1}`,
+          input_source: nextInputSource,
+          input_from_step_order: nextInputFrom,
+          input_file_ids: nextInputSource === "project" ? step.input_file_ids : [],
+        };
+      });
+    });
   }
 
   function toggleFile(step: PipelineStepConfig, fileId: number) {
@@ -315,8 +373,8 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
         body: JSON.stringify({ sample_name: sampleName, selected_steps: selectedSteps }),
       });
       onCreated(job);
-      setSampleName("");
-      setSelectedSteps([makeStep(0)]);
+      setSampleName(initialSampleName ?? "");
+      setSelectedSteps(initialSteps?.length ? initialSteps : [makeStep(0)]);
       if (onCancel) onCancel();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nie udało się utworzyć zadania.");
@@ -357,7 +415,7 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
             <p className="text-sm font-medium">Konstruktor pipeline&apos;u</p>
             <p className="mt-1 max-w-2xl text-xs text-muted/70">
               Wybierz narzędzie dla każdego kroku i przypisz pliki projektu.
-              Dostępne narzędzia: `fastqc`, `multiqc`, `trimmomatic`, `samtools`, `bwa`, `bcftools`.
+              Dostępne narzędzia: `fastqc`, `multiqc`, `trimmomatic`, `samtools`, `bwa`, `bcftools`, `bcftools_filter`, `bcftools_stats`, `snpeff`.
             </p>
           </div>
           <button
@@ -386,20 +444,47 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
                 step.options.some((option) => option.key === definition.key),
               ).length;
               return (
-              <div key={`${step.step_name}-${index}`} className="rounded-[1.5rem] border border-line/40 bg-background p-4 shadow-inner sm:p-5">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">{step.step_name}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeStep(index)}
-                    className="text-xs text-danger hover:underline font-medium"
-                  >
-                    Usuń krok
-                  </button>
-                </div>
-                <label className="mt-4 block">
+              <div key={`${step.step_name}-${index}`} className="rounded-[1.5rem] border border-line/40 bg-background shadow-inner transition-colors">
+                <details open className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-4 sm:p-5 border-b border-transparent group-open:border-line/30 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent transition-transform group-open:rotate-90">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                      </div>
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent truncate">{step.step_name}: {step.tool_name}</p>
+                    </div>
+                    <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); moveStep(index, "up"); }}
+                        disabled={index === 0}
+                        className="p-1.5 text-muted transition-colors hover:text-foreground disabled:opacity-30 disabled:hover:text-muted rounded-full hover:bg-line/50"
+                        title="Przesuń w górę"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); moveStep(index, "down"); }}
+                        disabled={index === selectedSteps.length - 1}
+                        className="p-1.5 text-muted transition-colors hover:text-foreground disabled:opacity-30 disabled:hover:text-muted rounded-full hover:bg-line/50"
+                        title="Przesuń w dół"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+                      </button>
+                      <div className="w-px h-4 bg-line mx-1"></div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); removeStep(index); }}
+                        className="p-1.5 text-muted transition-colors hover:text-danger rounded-full hover:bg-danger/10"
+                        title="Usuń krok"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                      </button>
+                    </div>
+                  </summary>
+                  <div className="p-4 pt-3 sm:p-5 sm:pt-4">
+                    <label className="block">
                   <span className="mb-2 block text-sm text-muted">Narzędzie</span>
                   <select
                     className="w-full rounded-2xl border border-line bg-background px-4 py-3 text-sm outline-none transition-all focus:border-accent"
@@ -722,6 +807,8 @@ export function JobCreateForm({ projectId, uploads, onCreated, onCancel }: JobCr
                     </p>
                   )}
                 </div>
+                  </div>
+                </details>
               </div>
               );
             })

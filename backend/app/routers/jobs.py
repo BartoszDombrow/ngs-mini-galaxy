@@ -14,11 +14,13 @@ from app.schemas.job import (
     JobCommentCreate,
     JobCommentResponse,
     JobCreate,
+    JobFilePromoteRequest,
     JobFileResponse,
     JobLogsResponse,
     JobResponse,
     JobStepResponse,
 )
+from app.schemas.upload_file import UploadFileResponse
 from app.services.jobs import (
     create_job_comment,
     create_job,
@@ -32,6 +34,8 @@ from app.services.jobs import (
     start_job_runner,
     delete_job,
 )
+from app.services.files import register_stored_file
+from app.models.upload_file import UploadFile
 from app.services.projects import get_project_for_user
 
 
@@ -94,6 +98,19 @@ def delete_job_endpoint(
     job = _get_job_for_user(db, current_user, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    job_root = Path(job.working_dir).resolve() if job.working_dir else None
+    results_dir = Path("/data/storage/results") / f"job_{job.id}"
+    
+    # Check if any promoted file depends on this job's files
+    promoted_files = db.query(UploadFile).filter(UploadFile.project_id == job.project_id).all()
+    for uf in promoted_files:
+        try:
+            stored_path = Path(uf.stored_path).resolve()
+            if (job_root and str(stored_path).startswith(str(job_root))) or str(stored_path).startswith(str(results_dir)):
+                raise HTTPException(status_code=400, detail="Nie można usunąć analizy, ponieważ wygenerowane w niej pliki zostały dodane do puli projektu. Usuń je z plików projektu, aby móc usunąć analizę.")
+        except Exception:
+            pass
 
     delete_job(db, job)
     return
@@ -215,3 +232,69 @@ def get_job_file_endpoint(
         filename=target_path.name,
         content_disposition_type="attachment" if download else "inline",
     )
+
+
+@router.post("/jobs/{job_id}/promote-file", response_model=UploadFileResponse)
+def promote_job_file_endpoint(
+    job_id: int,
+    payload: JobFilePromoteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    job = _get_job_for_user(db, current_user, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    target_path = Path(payload.path).resolve()
+    job_root = Path(job.working_dir).resolve() if job.working_dir else Path("/nonexistent")
+    allowed_prefixes = [job_root]
+
+    results_dir = Path("/data/storage/results") / f"job_{job.id}"
+    if results_dir.exists():
+        allowed_prefixes.append(results_dir.resolve())
+
+    if not any(str(target_path).startswith(str(prefix)) for prefix in allowed_prefixes):
+        raise HTTPException(status_code=403, detail="File is outside the job scope")
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # check if already promoted
+    existing = db.query(UploadFile).filter(UploadFile.project_id == job.project_id, UploadFile.stored_path == str(target_path)).first()
+    if existing:
+        return existing
+
+    upload = register_stored_file(db, job.project, target_path.name, target_path)
+    return upload
+
+
+@router.delete("/jobs/{job_id}/file", status_code=204)
+def delete_job_file_endpoint(
+    job_id: int,
+    path: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    job = _get_job_for_user(db, current_user, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    target_path = Path(path).resolve()
+    job_root = Path(job.working_dir).resolve() if job.working_dir else Path("/nonexistent")
+    allowed_prefixes = [job_root]
+
+    results_dir = Path("/data/storage/results") / f"job_{job.id}"
+    if results_dir.exists():
+        allowed_prefixes.append(results_dir.resolve())
+
+    if not any(str(target_path).startswith(str(prefix)) for prefix in allowed_prefixes):
+        raise HTTPException(status_code=403, detail="File is outside the job scope")
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Check if promoted
+    promoted = db.query(UploadFile).filter(UploadFile.project_id == job.project_id, UploadFile.stored_path == str(target_path)).first()
+    if promoted:
+        raise HTTPException(status_code=400, detail="Plik jest dodany do projektu. Usuń go najpierw z plików projektu.")
+
+    target_path.unlink(missing_ok=True)
+    return

@@ -14,7 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     samtools \
     sra-toolkit \
     trimmomatic \
+    datamash \
+    wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+RUN wget https://snpeff-public.s3.amazonaws.com/versions/snpEff_latest_core.zip -O /tmp/snpeff.zip && \
+    unzip /tmp/snpeff.zip -d /opt/ && \
+    rm /tmp/snpeff.zip
 
 COPY requirements.txt .
 RUN pip install --upgrade pip && \

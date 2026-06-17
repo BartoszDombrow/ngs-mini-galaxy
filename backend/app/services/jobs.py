@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import subprocess
 import threading
@@ -218,7 +219,7 @@ TOOL_SPECS = {
     "bwa": {
         "description": "Mapowanie odczytów do genomu referencyjnego.",
         "input_mode": "project",
-        "runner_mode": "demo",
+        "runner_mode": "real",
         "accepted_file_types": ["fastq", "fastq.gz", "fasta"],
         "options": [
             {
@@ -314,7 +315,7 @@ TOOL_SPECS = {
                 "label": "Moduł Samtools",
                 "description": "Wybierz konkretny moduł Samtools do uruchomienia, np. faidx, flagstat, view albo dict.",
                 "value_type": "choice",
-                "choices": ["sort", "index", "flagstat", "faidx", "stats", "idxstats", "depth", "view", "coverage", "quickcheck", "fasta", "fastq", "dict"],
+                "choices": ["sort", "index", "flagstat", "faidx", "stats", "idxstats", "depth", "view", "coverage", "quickcheck", "fasta", "fastq", "dict", "fixmate", "markdup"],
             },
             {
                 "key": "threads",
@@ -323,7 +324,7 @@ TOOL_SPECS = {
                 "description": "Liczba wątków używanych przez Samtools.",
                 "value_type": "number",
                 "placeholder": "4",
-                "applies_to": ["sort", "index", "flagstat", "stats", "idxstats", "depth", "view"],
+                "applies_to": ["sort", "index", "flagstat", "stats", "idxstats", "depth", "view", "fixmate", "markdup"],
             },
             {
                 "key": "memory",
@@ -457,6 +458,38 @@ TOOL_SPECS = {
                 "applies_to": ["dict"],
             },
             {
+                "key": "sort_by_name",
+                "flag": "-n",
+                "label": "Sortuj po nazwie (sort)",
+                "description": "Sortuj odczyty po nazwie odczytu zamiast po koordynatach (wymagane m.in. dla fixmate).",
+                "value_type": "boolean",
+                "applies_to": ["sort"],
+            },
+            {
+                "key": "fixmate_add_mate_score",
+                "flag": "-m",
+                "label": "Dodaj mate score (fixmate)",
+                "description": "Dodaj tagi ms (mate score), wymagane przez samtools markdup.",
+                "value_type": "boolean",
+                "applies_to": ["fixmate"],
+            },
+            {
+                "key": "markdup_remove_duplicates",
+                "flag": "-r",
+                "label": "Usuń duplikaty (markdup)",
+                "description": "Zamiast tylko oznaczać, fizycznie usuń zduplikowane odczyty.",
+                "value_type": "boolean",
+                "applies_to": ["markdup"],
+            },
+            {
+                "key": "pipe_to_datamash",
+                "flag": "| datamash",
+                "label": "Oblicz średnią (datamash)",
+                "description": "Przekaż wynik pokrycia (depth) do datamash, aby obliczyć średnią (datamash mean 3).",
+                "value_type": "boolean",
+                "applies_to": ["depth"],
+            },
+            {
                 "key": "extra_args",
                 "flag": "",
                 "label": "Dodatkowe argumenty",
@@ -469,8 +502,8 @@ TOOL_SPECS = {
     "bcftools": {
         "description": "Wywoływanie wariantów i podstawowe filtrowanie wyników.",
         "input_mode": "project",
-        "runner_mode": "demo",
-        "accepted_file_types": ["bam", "sam", "cram", "bcf", "vcf", "vcf.gz"],
+        "runner_mode": "real",
+        "accepted_file_types": ["bam", "sam", "cram", "bcf", "vcf", "vcf.gz", "fasta"],
         "options": [
             {
                 "key": "call_mode",
@@ -504,6 +537,30 @@ TOOL_SPECS = {
                 "placeholder": "sample1,sample2",
             },
             {
+                "key": "min_mq",
+                "flag": "-q",
+                "label": "Min. jakość mapowania (MQ)",
+                "description": "Minimalna jakość mapowania odczytu, by wziąć go pod uwagę (mpileup).",
+                "value_type": "number",
+                "placeholder": "20",
+            },
+            {
+                "key": "min_bq",
+                "flag": "-Q",
+                "label": "Min. jakość zasady (BQ)",
+                "description": "Minimalna jakość zasady (base quality), by uwzględnić ją w mpileup.",
+                "value_type": "number",
+                "placeholder": "13",
+            },
+            {
+                "key": "max_depth",
+                "flag": "-d",
+                "label": "Maksymalne pokrycie",
+                "description": "Maksymalna głębokość pokrycia na pozycję (max depth dla mpileup).",
+                "value_type": "number",
+                "placeholder": "250",
+            },
+            {
                 "key": "regions",
                 "flag": "-r",
                 "label": "Regiony",
@@ -521,9 +578,92 @@ TOOL_SPECS = {
             },
         ],
     },
+    "snpeff": {
+        "description": "Adnotacja biologiczna wariantów, m.in. określenie genów i efektów mutacji.",
+        "input_mode": "project",
+        "runner_mode": "real",
+        "accepted_file_types": ["vcf", "vcf.gz", "bcf"],
+        "options": [
+            {
+                "key": "genome_db",
+                "flag": "",
+                "label": "Baza organizmu",
+                "description": "Wybierz nazwę bazy organizmu (np. Canis_familiaris, GRCh38.105). Baza zostanie pobrana w razie braku.",
+                "value_type": "string",
+                "placeholder": "Canis_familiaris",
+            },
+            {
+                "key": "extra_args",
+                "flag": "",
+                "label": "Dodatkowe argumenty SnpEff",
+                "description": "Opcjonalne flagi SnpEff.",
+                "value_type": "string",
+            },
+        ],
+    },
+    "bcftools_filter": {
+        "description": "Filtrowanie wyników wariantów VCF wg zadanych reguł.",
+        "input_mode": "project",
+        "runner_mode": "real",
+        "accepted_file_types": ["vcf", "vcf.gz", "bcf"],
+        "options": [
+            {
+                "key": "include_expr",
+                "flag": "-i",
+                "label": "Wyrażenie 'Include'",
+                "description": "Zostaw tylko warianty spełniające warunek (np. QUAL>20).",
+                "value_type": "string",
+                "placeholder": "QUAL>20",
+            },
+            {
+                "key": "exclude_expr",
+                "flag": "-e",
+                "label": "Wyrażenie 'Exclude'",
+                "description": "Odrzuć warianty spełniające warunek (np. QUAL<10).",
+                "value_type": "string",
+            },
+        ],
+    },
+    "bcftools_stats": {
+        "description": "Wyliczanie statystyk z plików VCF, m.in. wsparcie dla MultiQC.",
+        "input_mode": "project",
+        "runner_mode": "real",
+        "accepted_file_types": ["vcf", "vcf.gz", "bcf"],
+        "options": [],
+    },
 }
 
 AVAILABLE_TOOLS = list(TOOL_SPECS.keys())
+
+
+def group_fastq_files(input_files: list[dict]) -> list[list[dict]]:
+    pattern = re.compile(r"(_R?)([12])(?:_001)?\.f(?:ast)?q(?:\.gz)?$", re.IGNORECASE)
+    pairs = {}
+    singles = []
+    
+    for f in input_files:
+        name = Path(f["stored_path"]).name
+        match = pattern.search(name)
+        if match:
+            base_name = name[:match.start()]
+            pair_num = match.group(2)
+            if base_name not in pairs:
+                pairs[base_name] = {"1": None, "2": None}
+            pairs[base_name][pair_num] = f
+        else:
+            singles.append([f])
+            
+    result = []
+    for base_name, p in pairs.items():
+        if p["1"] and p["2"]:
+            result.append([p["1"], p["2"]])
+        elif p["1"]:
+            result.append([p["1"]])
+        elif p["2"]:
+            result.append([p["2"]])
+            
+    result.extend(singles)
+    return result
 
 
 def _enabled_option_map(options: list[dict]) -> dict[str, dict]:
@@ -649,8 +789,8 @@ def normalize_pipeline_steps(
             raise ValueError(f"Tool `{tool_name}` must come after a result-producing step in the same job")
         if tool_name == "multiqc":
             prior_tools = [item["tool_name"] for item in normalized]
-            if not any(previous_tool in {"fastqc"} for previous_tool in prior_tools):
-                raise ValueError("MultiQC requires earlier FastQC results in the same job")
+            if not any(previous_tool in {"fastqc", "bcftools", "samtools", "snpeff", "trimmomatic", "bwa", "bcftools_stats", "bcftools_filter"} for previous_tool in prior_tools):
+                raise ValueError("MultiQC requires earlier result-producing steps in the same job to aggregate (e.g. FastQC, BCFtools, Samtools)")
 
         input_files: list[dict] = []
         if tool_spec["input_mode"] != "job" and input_source == "step":
@@ -689,8 +829,7 @@ def normalize_pipeline_steps(
                     }
                 )
 
-        if tool_name == "trimmomatic" and len(input_files) > 2:
-            raise ValueError("Trimmomatic currently supports one file (SE) or two files (PE) per step")
+
         if tool_name == "samtools" and len(input_files) != 1:
             raise ValueError("Samtools currently expects exactly one input file per step")
 
@@ -754,32 +893,41 @@ def predict_step_outputs(
     synthetic_id_base = -(step_order * 100)
 
     if tool_name == "trimmomatic":
-        if len(input_files) == 1:
-            input_path = Path(input_files[0]["stored_path"])
-            output_path = step_dir / f"{input_path.stem}.trimmed.fastq.gz"
-            return [
-                {
-                    "id": synthetic_id_base - 1,
+        groups = group_fastq_files(input_files)
+        outputs = []
+        for group in groups:
+            if len(group) == 1:
+                input_path = Path(group[0]["stored_path"])
+                output_path = step_dir / f"{input_path.stem}.trimmed.fastq.gz"
+                outputs.append({
+                    "id": synthetic_id_base - len(outputs) - 1,
                     "original_name": output_path.name,
                     "file_type": "fastq.gz",
                     "stored_path": str(output_path),
-                }
-            ]
-        if len(input_files) == 2:
-            return [
-                {
-                    "id": synthetic_id_base - 1,
-                    "original_name": "paired_R1.fastq.gz",
-                    "file_type": "fastq.gz",
-                    "stored_path": str(step_dir / "paired_R1.fastq.gz"),
-                },
-                {
-                    "id": synthetic_id_base - 2,
-                    "original_name": "paired_R2.fastq.gz",
-                    "file_type": "fastq.gz",
-                    "stored_path": str(step_dir / "paired_R2.fastq.gz"),
-                },
-            ]
+                })
+            elif len(group) == 2:
+                input_path = Path(group[0]["stored_path"])
+                base_name = re.sub(r"(_R?)[12](?:_001)?(\.f(?:ast)?q(?:\.gz)?)$", "", input_path.name, flags=re.IGNORECASE)
+                if base_name == input_path.name:
+                    base_name = input_path.stem.replace("_R1", "").replace("_1", "")
+                
+                name_1 = f"{base_name}_paired_R1.fastq.gz"
+                name_2 = f"{base_name}_paired_R2.fastq.gz"
+                outputs.extend([
+                    {
+                        "id": synthetic_id_base - len(outputs) - 1,
+                        "original_name": name_1,
+                        "file_type": "fastq.gz",
+                        "stored_path": str(step_dir / name_1),
+                    },
+                    {
+                        "id": synthetic_id_base - len(outputs) - 2,
+                        "original_name": name_2,
+                        "file_type": "fastq.gz",
+                        "stored_path": str(step_dir / name_2),
+                    }
+                ])
+        return outputs
 
     if tool_name == "samtools" and input_files:
         input_path = Path(input_files[0]["stored_path"])
@@ -829,14 +977,41 @@ def predict_step_outputs(
                     "stored_path": str(step_dir / f"{input_path.stem}.view.{suffix}"),
                 }
             ]
+        if subcommand in {"flagstat", "stats", "idxstats", "depth"}:
+            return [
+                {
+                    "id": synthetic_id_base - 1,
+                    "original_name": f"{input_path.stem}.{subcommand}.txt",
+                    "file_type": "txt",
+                    "stored_path": str(step_dir / f"{input_path.stem}.{subcommand}.txt"),
+                }
+            ]
+        if subcommand == "fixmate":
+            return [
+                {
+                    "id": synthetic_id_base - 1,
+                    "original_name": f"{input_path.stem}.fixmate.bam",
+                    "file_type": "bam",
+                    "stored_path": str(step_dir / f"{input_path.stem}.fixmate.bam"),
+                }
+            ]
+        if subcommand == "markdup":
+            return [
+                {
+                    "id": synthetic_id_base - 1,
+                    "original_name": f"{input_path.stem}.markdup.bam",
+                    "file_type": "bam",
+                    "stored_path": str(step_dir / f"{input_path.stem}.markdup.bam"),
+                }
+            ]
 
     if tool_name == "bwa":
         return [
             {
                 "id": synthetic_id_base - 1,
-                "original_name": f"{step_order:02d}_aligned_reads.bam",
+                "original_name": "aligned_reads.bam",
                 "file_type": "bam",
-                "stored_path": str(step_dir / f"{step_order:02d}_aligned_reads.bam"),
+                "stored_path": str(step_dir / "aligned_reads.bam"),
             }
         ]
 
@@ -844,9 +1019,39 @@ def predict_step_outputs(
         return [
             {
                 "id": synthetic_id_base - 1,
-                "original_name": f"{step_order:02d}_variants.vcf",
+                "original_name": "variants.vcf",
                 "file_type": "vcf",
-                "stored_path": str(step_dir / f"{step_order:02d}_variants.vcf"),
+                "stored_path": str(step_dir / "variants.vcf"),
+            }
+        ]
+
+    if tool_name == "bcftools_filter":
+        return [
+            {
+                "id": synthetic_id_base - 1,
+                "original_name": "variants_filtered.vcf",
+                "file_type": "vcf",
+                "stored_path": str(step_dir / "variants_filtered.vcf"),
+            }
+        ]
+
+    if tool_name == "bcftools_stats":
+        return [
+            {
+                "id": synthetic_id_base - 1,
+                "original_name": "variants.stats.txt",
+                "file_type": "txt",
+                "stored_path": str(step_dir / "variants.stats.txt"),
+            }
+        ]
+
+    if tool_name == "snpeff":
+        return [
+            {
+                "id": synthetic_id_base - 1,
+                "original_name": "variants_annotated.vcf",
+                "file_type": "vcf",
+                "stored_path": str(step_dir / "variants_annotated.vcf"),
             }
         ]
 
@@ -876,6 +1081,12 @@ def render_option_args(tool_name: str, options: list[dict]) -> list[str]:
             else:
                 args.append(definition["flag"])
             continue
+            
+        if option["key"] == "ploidy":
+            args.append(definition["flag"])
+            args.append("1" if option["value"] == "haploid" else "2")
+            continue
+            
         args.append(definition["flag"])
         if definition["value_type"] != "boolean":
             args.append(str(option["value"]))
@@ -901,44 +1112,201 @@ def build_command_args(
     if tool_name == "trimmomatic":
         return _build_trimmomatic_command(input_files, options, step_dir)
     if tool_name == "bwa":
-        algorithm = option_map.get("algorithm", {}).get("value") or "mem"
-        if algorithm == "mem2":
-            return ["bwa-mem2", "mem", *option_args, *input_paths]
-        return ["bwa", algorithm, *option_args, *input_paths]
+        return _build_bwa_command(input_files, options, step_dir)
     if tool_name == "samtools":
         return _build_samtools_command(input_files, options, step_dir)
     if tool_name == "bcftools":
-        call_mode = option_map.get("call_mode", {}).get("value") or "multiallelic-caller"
-        mode_flag = "-m" if call_mode == "multiallelic-caller" else "-c"
-        return ["bcftools", "call", mode_flag, *option_args, *input_paths]
+        return _build_bcftools_command(input_files, options, step_dir)
+    if tool_name == "bcftools_filter":
+        return _build_bcftools_filter_command(input_files, options, step_dir)
+    if tool_name == "bcftools_stats":
+        return _build_bcftools_stats_command(input_files, options, step_dir)
+    if tool_name == "snpeff":
+        return _build_snpeff_command(input_files, options, step_dir)
     return [tool_name, "--sample", sample_name, *option_args, *input_paths]
+
+
+def _build_bwa_command(input_files: list[dict], options: list[dict], step_dir: Path) -> list[str]:
+    option_args = render_option_args("bwa", options)
+    option_map = _enabled_option_map(options)
+    algorithm = option_map.get("algorithm", {}).get("value") or "mem"
+    
+    ref_file = None
+    fastq_files = []
+    for f in input_files:
+        if f["file_type"] == "fasta":
+            ref_file = f["stored_path"]
+        elif f["file_type"] in ["fastq", "fastq.gz"]:
+            fastq_files.append(f["stored_path"])
+            
+    if not ref_file:
+        raise ValueError("BWA wymaga pliku referencyjnego FASTA. Dodaj plik FASTA do danych wejściowych.")
+    if not fastq_files:
+        raise ValueError("BWA wymaga co najmniej jednego pliku FASTQ z odczytami.")
+        
+    ref_path = Path(ref_file)
+    symlink_ref = step_dir / ref_path.name
+    step_order_str = step_dir.name.split('_')[0]
+    output_bam = step_dir / f"{step_order_str}_aligned_reads.bam"
+    
+    fastq_args = " ".join(f"'{f}'" for f in fastq_files)
+    cmd = (
+        f"ln -sf '{ref_path}' '{symlink_ref}' && "
+        f"if [ ! -f '{symlink_ref}.bwt' ] && [ ! -f '{ref_path}.bwt' ]; then bwa index '{symlink_ref}'; fi && "
+        f"bwa {algorithm} {' '.join(option_args)} '{symlink_ref}' "
+        f"{fastq_args} | samtools view -Sb - > '{output_bam}'"
+    )
+    
+    return ["bash", "-c", cmd]
+
+
+def _build_bcftools_command(input_files: list[dict], options: list[dict], step_dir: Path) -> list[str]:
+    option_args = render_option_args("bcftools", options)
+    option_map = _enabled_option_map(options)
+    
+    call_mode = option_map.get("call_mode", {}).get("value") or "multiallelic-caller"
+    call_flag = "-m" if call_mode == "multiallelic-caller" else "-c"
+    
+    # Wyciągamy opcje mpileup
+    mpileup_opts = []
+    if "min_mq" in option_map and option_map["min_mq"].get("value"):
+        mpileup_opts.extend(["-q", str(option_map["min_mq"]["value"])])
+    if "min_bq" in option_map and option_map["min_bq"].get("value"):
+        mpileup_opts.extend(["-Q", str(option_map["min_bq"]["value"])])
+    if "max_depth" in option_map and option_map["max_depth"].get("value"):
+        mpileup_opts.extend(["-d", str(option_map["max_depth"]["value"])])
+        
+    # Usuwamy opcje mpileup z call args
+    call_args = []
+    i = 0
+    while i < len(option_args):
+        if option_args[i] in ["-q", "-Q", "-d"]:
+            i += 2
+        else:
+            call_args.append(option_args[i])
+            i += 1
+    
+    ref_file = None
+    bam_files = []
+    vcf_files = []
+    for f in input_files:
+        if f["file_type"] == "fasta":
+            ref_file = f["stored_path"]
+        elif f["file_type"] in ["bam", "cram", "sam"]:
+            bam_files.append(f["stored_path"])
+        elif f["file_type"] in ["vcf", "vcf.gz", "bcf"]:
+            vcf_files.append(f["stored_path"])
+            
+    output_vcf = step_dir / "variants.vcf"
+    
+    if bam_files:
+        if not ref_file:
+            raise ValueError("Do wywołania wariantów z plików BAM wymagany jest plik referencyjny FASTA.")
+        ref_path = Path(ref_file)
+        symlink_ref = step_dir / ref_path.name
+        
+        bam_args = " ".join(f"'{f}'" for f in bam_files)
+        cmd = (
+            f"ln -sf '{ref_path}' '{symlink_ref}' && "
+            f"if [ ! -f '{symlink_ref}.fai' ] && [ ! -f '{ref_path}.fai' ]; then samtools faidx '{symlink_ref}'; fi && "
+            f"bcftools mpileup -Ou {' '.join(mpileup_opts)} -f '{symlink_ref}' {bam_args} | "
+            f"bcftools call {call_flag} {' '.join(call_args)} -Ov -o '{output_vcf}'"
+        )
+        return ["bash", "-c", cmd]
+    elif vcf_files:
+        vcf_args = " ".join(f"'{f}'" for f in vcf_files)
+        cmd = f"bcftools call {call_flag} {' '.join(call_args)} -Ov -o '{output_vcf}' {vcf_args}"
+        return ["bash", "-c", cmd]
+    else:
+        raise ValueError("BCFtools wymaga przynajmniej jednego pliku BAM lub VCF.")
+
+
+def _build_bcftools_filter_command(input_files: list[dict], options: list[dict], step_dir: Path) -> list[str]:
+    option_args = render_option_args("bcftools_filter", options)
+    vcf_files = [f["stored_path"] for f in input_files if f["file_type"] in ["vcf", "vcf.gz", "bcf"]]
+    if not vcf_files:
+        raise ValueError("BCFtools filter wymaga przynajmniej jednego pliku VCF.")
+    
+    output_vcf = step_dir / "variants_filtered.vcf"
+    vcf_args = " ".join(f"'{f}'" for f in vcf_files)
+    cmd = f"bcftools filter {' '.join(option_args)} -O v -o '{output_vcf}' {vcf_args}"
+    return ["bash", "-c", cmd]
+
+
+def _build_bcftools_stats_command(input_files: list[dict], options: list[dict], step_dir: Path) -> list[str]:
+    option_args = render_option_args("bcftools_stats", options)
+    vcf_files = [f["stored_path"] for f in input_files if f["file_type"] in ["vcf", "vcf.gz", "bcf"]]
+    if not vcf_files:
+        raise ValueError("BCFtools stats wymaga przynajmniej jednego pliku VCF.")
+        
+    output_stats = step_dir / "variants.stats.txt"
+    vcf_args = " ".join(f"'{f}'" for f in vcf_files)
+    cmd = f"bcftools stats {' '.join(option_args)} {vcf_args} > '{output_stats}'"
+    return ["bash", "-c", cmd]
+
+
+def _build_snpeff_command(input_files: list[dict], options: list[dict], step_dir: Path) -> list[str]:
+    option_map = _enabled_option_map(options)
+    genome_db = option_map.get("genome_db", {}).get("value")
+    if not genome_db:
+        raise ValueError("SnpEff wymaga podania nazwy bazy organizmu (np. Canis_familiaris).")
+        
+    extra_args = ""
+    if "extra_args" in option_map and option_map["extra_args"].get("value"):
+        extra_args = option_map["extra_args"]["value"]
+        
+    vcf_files = [f["stored_path"] for f in input_files if f["file_type"] in ["vcf", "vcf.gz", "bcf"]]
+    if not vcf_files:
+        raise ValueError("SnpEff wymaga przynajmniej jednego pliku VCF.")
+        
+    input_vcf = vcf_files[0]
+    output_vcf = step_dir / "variants_annotated.vcf"
+    
+    # Najpierw spróbuj pobrać bazę (błąd jest ignorowany, jeśli już istnieje), potem uruchom annotację
+    cmd = (
+        f"java -jar /opt/snpEff/snpEff.jar download {genome_db} || true && "
+        f"java -jar /opt/snpEff/snpEff.jar {extra_args} {genome_db} '{input_vcf}' > '{output_vcf}'"
+    )
+    return ["bash", "-c", cmd]
 
 
 def _build_trimmomatic_command(input_files: list[dict], options: list[dict], step_dir: Path) -> list[str]:
     prefix_args, step_args = _render_trimmomatic_args(options)
-    if len(input_files) == 1:
-        input_path = input_files[0]["stored_path"]
-        output_path = step_dir / f"{Path(input_path).stem}.trimmed.fastq.gz"
-        return ["trimmomatic", "SE", *prefix_args, input_path, str(output_path), *step_args]
-
-    input_1 = input_files[0]["stored_path"]
-    input_2 = input_files[1]["stored_path"]
-    output_1_paired = step_dir / "paired_R1.fastq.gz"
-    output_1_unpaired = step_dir / "unpaired_R1.fastq.gz"
-    output_2_paired = step_dir / "paired_R2.fastq.gz"
-    output_2_unpaired = step_dir / "unpaired_R2.fastq.gz"
-    return [
-        "trimmomatic",
-        "PE",
-        *prefix_args,
-        input_1,
-        input_2,
-        str(output_1_paired),
-        str(output_1_unpaired),
-        str(output_2_paired),
-        str(output_2_unpaired),
-        *step_args,
-    ]
+    groups = group_fastq_files(input_files)
+    commands = []
+    
+    for group in groups:
+        if len(group) == 1:
+            input_path = group[0]["stored_path"]
+            output_path = step_dir / f"{Path(input_path).stem}.trimmed.fastq.gz"
+            cmd = ["java", "-jar", "/usr/share/java/trimmomatic.jar", "SE", *prefix_args, input_path, str(output_path), *step_args]
+            commands.append(" ".join(cmd))
+        else:
+            input_1 = group[0]["stored_path"]
+            input_2 = group[1]["stored_path"]
+            
+            base_name = re.sub(r"(_R?)[12](?:_001)?(\.f(?:ast)?q(?:\.gz)?)$", "", Path(input_1).name, flags=re.IGNORECASE)
+            if base_name == Path(input_1).name:
+                base_name = Path(input_1).stem.replace("_R1", "").replace("_1", "")
+                
+            output_1_paired = step_dir / f"{base_name}_paired_R1.fastq.gz"
+            output_1_unpaired = step_dir / f"{base_name}_unpaired_R1.fastq.gz"
+            output_2_paired = step_dir / f"{base_name}_paired_R2.fastq.gz"
+            output_2_unpaired = step_dir / f"{base_name}_unpaired_R2.fastq.gz"
+            
+            cmd = [
+                "java", "-jar", "/usr/share/java/trimmomatic.jar", "PE",
+                *prefix_args,
+                input_1, input_2,
+                str(output_1_paired), str(output_1_unpaired),
+                str(output_2_paired), str(output_2_unpaired),
+                *step_args
+            ]
+            commands.append(" ".join(cmd))
+            
+    if len(commands) == 1:
+        return commands[0].split(" ")
+    return ["bash", "-c", " && ".join(commands)]
 
 
 def _render_trimmomatic_args(options: list[dict]) -> tuple[list[str], list[str]]:
@@ -981,15 +1349,27 @@ def _build_samtools_command(input_files: list[dict], options: list[dict], step_d
         output_name = f"{input_name}.bai"
         return ["samtools", "index", *option_args, input_path, str(step_dir / output_name)]
     if subcommand == "flagstat":
-        return ["samtools", "flagstat", *option_args, input_path]
+        output_name = f"{Path(input_name).stem}.flagstat.txt"
+        return ["bash", "-c", f"samtools flagstat {' '.join(option_args)} '{input_path}' > '{step_dir / output_name}'"]
     if subcommand == "faidx":
         return ["samtools", "faidx", *option_args, input_path]
     if subcommand == "stats":
-        return ["samtools", "stats", *option_args, input_path]
+        output_name = f"{Path(input_name).stem}.stats.txt"
+        return ["bash", "-c", f"samtools stats {' '.join(option_args)} '{input_path}' > '{step_dir / output_name}'"]
     if subcommand == "idxstats":
-        return ["samtools", "idxstats", *option_args, input_path]
+        output_name = f"{Path(input_name).stem}.idxstats.txt"
+        return ["bash", "-c", f"samtools idxstats {' '.join(option_args)} '{input_path}' > '{step_dir / output_name}'"]
     if subcommand == "depth":
-        return ["samtools", "depth", *option_args, input_path]
+        output_name = f"{Path(input_name).stem}.depth.txt"
+        if "pipe_to_datamash" in _enabled_option_map(options):
+            cmd = (
+                f"if command -v datamash &> /dev/null; then "
+                f"samtools depth {' '.join(option_args)} '{input_path}' | datamash mean 3 > '{step_dir / output_name}'; "
+                f"else echo 'Ostrzeżenie: brak datamash' > '{step_dir / output_name}'; "
+                f"samtools depth {' '.join(option_args)} '{input_path}' >> '{step_dir / output_name}'; fi"
+            )
+            return ["bash", "-c", cmd]
+        return ["bash", "-c", f"samtools depth {' '.join(option_args)} '{input_path}' > '{step_dir / output_name}'"]
     if subcommand == "view":
         output_format = _enabled_option_value(options, "output_format", "BAM") or "BAM"
         suffix_map = {"BAM": "bam", "SAM": "sam", "CRAM": "cram"}
@@ -1013,6 +1393,12 @@ def _build_samtools_command(input_files: list[dict], options: list[dict], step_d
         if target_region:
             command.append(target_region)
         return command
+    if subcommand == "fixmate":
+        output_name = f"{Path(input_name).stem}.fixmate.bam"
+        return ["samtools", "fixmate", *option_args, input_path, str(step_dir / output_name)]
+    if subcommand == "markdup":
+        output_name = f"{Path(input_name).stem}.markdup.bam"
+        return ["samtools", "markdup", *option_args, input_path, str(step_dir / output_name)]
 
     return ["samtools", subcommand, *option_args, input_path]
 
@@ -1035,7 +1421,8 @@ def _render_samtools_args(subcommand: str, options: list[dict]) -> list[str]:
         append_if_present("output_format", "-O")
     if subcommand == "sort":
         append_if_present("memory", "-m")
-        append_if_enabled("name_sort", "-n")
+        if "name_sort" in option_map or "sort_by_name" in option_map:
+            args.append("-n")
     if subcommand == "view":
         append_if_enabled("include_header", "-h")
         append_if_enabled("count_only", "-c")
@@ -1053,6 +1440,12 @@ def _render_samtools_args(subcommand: str, options: list[dict]) -> list[str]:
         append_if_present("dict_assembly", "-a")
         append_if_present("dict_species", "-s")
         append_if_present("dict_uri", "-u")
+    if subcommand == "fixmate":
+        if "fixmate_add_mate_score" in option_map:
+            args.append("-m")
+    if subcommand == "markdup":
+        if "markdup_remove_duplicates" in option_map:
+            args.append("-r")
 
     extra = option_map.get("extra_args")
     if extra and extra.get("value"):
@@ -1167,7 +1560,8 @@ def _run_pipeline(job_id: int) -> None:
                 step.finished_at = datetime.utcnow()
                 db.commit()
             except Exception as exc:
-                Path(step.stderr_path).write_text(f"{exc}\n", encoding="utf-8")
+                with Path(step.stderr_path).open("a", encoding="utf-8") as f:
+                    f.write(f"\n[SYSTEM ERROR]: {exc}\n")
                 step.status = "failed"
                 step.finished_at = datetime.utcnow()
                 job.status = "failed"
@@ -1191,7 +1585,7 @@ def _run_single_step(job: Job, step: JobStep) -> None:
     command = build_command_args(step.tool_name, job.sample_name, input_files, tool_options, step_dir, Path(job.working_dir))
     step.command = " ".join(command)
 
-    if step.tool_name in {"fastqc", "multiqc", "trimmomatic", "samtools"}:
+    if step.tool_name in {"fastqc", "multiqc", "trimmomatic", "samtools", "bwa", "bcftools", "snpeff", "bcftools_filter", "bcftools_stats"}:
         stdout_path.write_text(
             f"[{datetime.utcnow().isoformat()}] Starting {step.tool_name}\n"
             f"Command: {' '.join(command)}\n",
@@ -1290,6 +1684,9 @@ def _write_demo_result(job: Job, tool_name: str, result_dir: Path, step_order: i
         "bwa": "aligned_reads.bam",
         "samtools": "aligned_reads.bam.bai",
         "bcftools": "variants.vcf",
+        "bcftools_filter": "variants_filtered.vcf",
+        "bcftools_stats": "variants.stats.txt",
+        "snpeff": "variants_annotated.vcf",
     }
     filename = outputs.get(tool_name, f"{tool_name}.txt")
     if "." in filename:

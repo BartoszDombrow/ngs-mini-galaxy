@@ -5,6 +5,7 @@ import { type FormEvent } from "react";
 import { useEffect, useState, useRef } from "react";
 
 import { AppShell } from "@/app/_components/app-shell";
+import { VcfViewer } from "@/app/_components/vcf-viewer";
 import { API_URL, apiRequest } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { Job, JobComment, JobFile, JobLogs, JobStep } from "@/types";
@@ -21,10 +22,12 @@ export default function JobDetailPage() {
   const [commentError, setCommentError] = useState<string | null>(null);
   const [isPostingComment, setIsPostingComment] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fileFilter, setFileFilter] = useState<string>("all");
 
   const previewModalRef = useRef<HTMLDialogElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string>("");
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
 
   async function openJobFile(file: JobFile, action: "download" | "open" | "preview" = "open") {
     const token = getToken();
@@ -50,22 +53,33 @@ export default function JobDetailPage() {
       return;
     }
 
-    const blob = await response.blob();
-    const objectUrl = window.URL.createObjectURL(blob);
     if (action === "download") {
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
       anchor.download = file.name;
       anchor.click();
       window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
     } else if (action === "preview") {
-      if (previewUrl) {
-        window.URL.revokeObjectURL(previewUrl);
+      if (file.name.endsWith(".vcf") || file.name.endsWith(".vcf.gz") || file.name.endsWith(".bcf")) {
+        const text = await response.text();
+        setPreviewContent(text);
+        setPreviewUrl(null);
+      } else {
+        const blob = await response.blob();
+        const objectUrl = window.URL.createObjectURL(blob);
+        if (previewUrl) {
+          window.URL.revokeObjectURL(previewUrl);
+        }
+        setPreviewUrl(objectUrl);
+        setPreviewContent(null);
       }
-      setPreviewUrl(objectUrl);
       setPreviewName(file.name);
       previewModalRef.current?.showModal();
     } else {
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
       window.open(objectUrl, "_blank", "noopener,noreferrer");
       window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
     }
@@ -77,12 +91,46 @@ export default function JobDetailPage() {
       window.URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     }
+    setPreviewContent(null);
   }
 
   function handleDialogClick(e: React.MouseEvent<HTMLDialogElement>) {
     const dialog = e.currentTarget;
     if (e.target === dialog) {
       closePreview();
+    }
+  }
+
+  async function promoteJobFile(file: JobFile) {
+    if (!confirm(`Czy na pewno chcesz dodać plik ${file.name} do plików projektu?`)) {
+      return;
+    }
+    
+    try {
+      await apiRequest(`/jobs/${jobId}/promote-file`, {
+        method: "POST",
+        body: JSON.stringify({ path: file.path }),
+      });
+      alert(`Pomyślnie dodano ${file.name} do projektu.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Błąd podczas dodawania pliku do projektu.");
+    }
+  }
+
+  async function deleteJobFile(file: JobFile) {
+    if (!confirm(`Czy na pewno chcesz trwale usunąć plik ${file.name} z wyników analizy?`)) {
+      return;
+    }
+
+    try {
+      const url = new URL(`${API_URL}/jobs/${jobId}/file`);
+      url.searchParams.set("path", file.path);
+      await apiRequest(url.toString().replace(API_URL, ""), {
+        method: "DELETE",
+      });
+      setFiles((current) => current.filter((f) => f.path !== file.path));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Błąd podczas usuwania pliku.");
     }
   }
 
@@ -157,6 +205,9 @@ export default function JobDetailPage() {
       }
     };
   }, [jobId, job?.status]);
+
+  const uniqueKinds = Array.from(new Set(files.map((f) => f.kind))).sort();
+  const filteredFiles = fileFilter === "all" ? files : files.filter((f) => f.kind === fileFilter);
 
   return (
     <AppShell>
@@ -300,48 +351,81 @@ export default function JobDetailPage() {
                 </div>
               </form>
             </div>
-            <div className="card rounded-[2rem] p-6">
-              <h2 className="text-lg font-semibold">Wygenerowane pliki</h2>
-              <div className="mt-4 space-y-3">
-                {files.length ? (
-                  files.map((file) => (
-                    <div
-                      key={`${file.kind}-${file.path}`}
-                      className="pill flex flex-col gap-3 rounded-2xl px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+          </div>
+        </section>
+        
+        <section className="card rounded-[2rem] p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <h2 className="text-lg font-semibold">Wygenerowane pliki</h2>
+            {uniqueKinds.length > 0 && (
+              <select
+                className="rounded-full border border-line bg-background px-4 py-2 text-sm outline-none focus:border-accent w-full sm:w-auto"
+                value={fileFilter}
+                onChange={(e) => setFileFilter(e.target.value)}
+              >
+                <option value="all">Wszystkie rodzaje</option>
+                {uniqueKinds.map((kind) => (
+                  <option key={kind} value={kind}>{kind}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="space-y-3">
+            {filteredFiles.length ? (
+              filteredFiles.map((file) => (
+                <div
+                  key={`${file.kind}-${file.path}`}
+                  className="pill flex flex-col gap-3 rounded-2xl px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <span className="min-w-0 break-words font-medium">
+                    {file.name} <span className="text-muted ml-2 font-normal text-xs uppercase tracking-widest">{file.kind}</span>
+                  </span>
+                  <span className="flex shrink-0 flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-full bg-accent px-3 py-1 text-xs text-white"
+                      onClick={() => void openJobFile(file, "preview")}
                     >
-                      <span className="min-w-0 break-words">
-                        {file.name} · {file.kind}
-                      </span>
-                      <span className="flex shrink-0 flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="rounded-full bg-accent px-3 py-1 text-xs text-white"
-                          onClick={() => void openJobFile(file, "preview")}
-                        >
-                          Podgląd
-                        </button>
-                        <button
-                          type="button"
-                          className="pill rounded-full px-3 py-1 text-xs"
-                          onClick={() => void openJobFile(file, "open")}
-                        >
-                          Karta
-                        </button>
-                        <button
-                          type="button"
-                          className="pill rounded-full px-3 py-1 text-xs"
-                          onClick={() => void openJobFile(file, "download")}
-                        >
-                          Pobierz
-                        </button>
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-muted">Pliki pojawią się tutaj w miarę postępu analizy.</p>
-                )}
-              </div>
-            </div>
+                      Podgląd
+                    </button>
+                    <button
+                      type="button"
+                      className="pill rounded-full px-3 py-1 text-xs"
+                      onClick={() => void openJobFile(file, "open")}
+                    >
+                      Karta
+                    </button>
+                    <button
+                      type="button"
+                      className="pill rounded-full px-3 py-1 text-xs"
+                      onClick={() => void openJobFile(file, "download")}
+                    >
+                      Pobierz
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent hover:text-white"
+                      onClick={() => void promoteJobFile(file)}
+                      title="Dodaj plik do projektu, by użyć go w innych analizach"
+                    >
+                      Do projektu
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full px-2 py-1 text-muted transition-colors hover:bg-danger/10 hover:text-danger"
+                      onClick={() => void deleteJobFile(file)}
+                      title="Usuń plik z dysku"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted">
+                {files.length === 0 ? "Pliki pojawią się tutaj w miarę postępu analizy." : "Brak plików dla wybranego filtru."}
+              </p>
+            )}
           </div>
         </section>
       </div>
@@ -364,7 +448,9 @@ export default function JobDetailPage() {
             </button>
           </div>
           <div className="relative min-h-0 w-full flex-1 bg-white">
-            {previewUrl ? (
+            {previewContent !== null ? (
+              <VcfViewer vcfText={previewContent} />
+            ) : previewUrl ? (
               <iframe
                 src={previewUrl}
                 className="absolute inset-0 h-full w-full border-none"
