@@ -1,3 +1,4 @@
+Jeśli używasz tego kodu w swoim projekcie lub pracy badawczej, proszę o umieszczenie linku do oryginalnego repozytorium: https://github.com/BartoszDombrow/ngs-mini-galaxy oraz wzmianki o autorze: Bartosz Owczarek
 # NGS Mini Galaxy
 
 Projekt akademicki (MVP) inspirowany platformą Galaxy, przeznaczony do podstawowej analizy danych NGS (sekwencjonowania nowej generacji) z plików FASTQ.
